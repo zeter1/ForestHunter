@@ -46,5 +46,56 @@
     const r=Math.max(.0001,Number(radius)||0);
     return Math.max(0,(Number(baseDamage)||0)*(1-Math.max(0,Number(distance)||0)/r));
   }
-  return {createWeapon,weaponFireGate,computeShotDamage,shotSpread,beginReloadState,finishReloadState,reloadProgress,deployableLimit,deployableTriggerRadius,blastFalloff};
+
+  function rollShotDamage(options,rng=Math.random){
+    return computeShotDamage({...options,critRoll:rng()});
+  }
+
+  function stepReloadFrame(weapon,dt){
+    if(!weapon?.reloading)return {active:false,completed:false,reloadLeft:Number(weapon?.reloadLeft)||0};
+    weapon.reloadLeft-=Math.max(0,Number(dt)||0);
+    if(weapon.reloadLeft<=0){
+      const loaded=finishReloadState(weapon);
+      return {active:false,completed:true,loaded,reloadLeft:0};
+    }
+    return {active:true,completed:false,loaded:0,reloadLeft:weapon.reloadLeft};
+  }
+
+  function advanceDeployableState(deployable,dt,lifetime){
+    const age=Math.max(0,Number(deployable?.age)||0)+Math.max(0,Number(dt)||0);
+    const expired=age>Math.max(0,Number(lifetime)||0);
+    const armed=!expired&&!deployable?.triggered&&age>=Math.max(0,Number(deployable?.armTime)||0);
+    return {age,expired,armed,radius:deployableTriggerRadius(deployable?.type)};
+  }
+
+  function selectDeployableTarget(distances,radius){
+    const limit=Math.max(0,Number(radius)||0);
+    let targetIndex=-1,best=limit*limit;
+    for(const candidate of distances||[]){
+      const distanceSq=Math.max(0,Number(candidate?.distanceSq)||0);
+      if(distanceSq<best){
+        best=distanceSq;
+        targetIndex=Math.trunc(Number(candidate?.index));
+      }
+    }
+    return {targetIndex,distanceSq:best};
+  }
+
+  function selectHitCandidate({obstacleDistance=null,obstacleKind='none',propDistance=null,boarDistance=null,range=130}={}){
+    const maxRange=Math.max(0,Number(range)||0);
+    const boar=Number.isFinite(Number(boarDistance))&&Number(boarDistance)<=maxRange?Number(boarDistance):null;
+    const tolerance=obstacleKind==='structure'?0.72:0.3;
+    const obstacle=Number.isFinite(Number(obstacleDistance))&&Number(obstacleDistance)<=maxRange&&
+      (boar===null||Number(obstacleDistance)+tolerance<boar)
+      ?Number(obstacleDistance):null;
+    const prop=Number.isFinite(Number(propDistance))&&Number(propDistance)<=maxRange?Number(propDistance):null;
+    const choices=[];
+    if(obstacle!==null)choices.push({type:'obstacle',distance:obstacle});
+    if(prop!==null)choices.push({type:'prop',distance:prop});
+    if(boar!==null)choices.push({type:'boar',distance:boar});
+    choices.sort((a,b)=>a.distance-b.distance);
+    return choices[0]||{type:'none',distance:maxRange};
+  }
+
+  return {createWeapon,weaponFireGate,computeShotDamage,rollShotDamage,shotSpread,beginReloadState,finishReloadState,reloadProgress,stepReloadFrame,deployableLimit,deployableTriggerRadius,advanceDeployableState,selectDeployableTarget,blastFalloff,selectHitCandidate};
 });

@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "boar": {
+    "seed": 4242,
+    "frames": 150,
+    "dt": 0.03333333333333333,
+    "state": {
+      "state": 3,
+      "idleT": 1,
+      "alertTimer": 0,
+      "chargeCooldown": 0.1,
+      "chargeT": 0,
+      "attackCooldown": 0,
+      "isBoss": false,
+      "attackRange": 2.55,
+      "alertRadius": 115
+    },
+    "phases": [
+      {
+        "untilFrame": 70,
+        "distance": 18,
+        "canAttack": true
+      },
+      {
+        "untilFrame": 150,
+        "distance": 2.2,
+        "canAttack": true
+      }
+    ],
+    "expected": {
+      "state": 5,
+      "chargeCooldown": 4.021503292,
+      "chargeT": -0.016666667,
+      "attackCooldown": 0.316666667,
+      "actions": {
+        "chase": 40,
+        "chargeWindup": 8,
+        "chargeMove": 21,
+        "attack": 3,
+        "capture": 1,
+        "expired": 1
+      }
+    }
+  },
+  "shots": {
+    "seed": 9001,
+    "count": 20,
+    "options": {
+      "baseDamage": 20,
+      "dmgMult": 1.2,
+      "berserker": true,
+      "hp": 40,
+      "maxHp": 100,
+      "deadlyShot": true,
+      "critChance": 0.25
+    },
+    "expected": {
+      "criticals": 6,
+      "deadly": 4,
+      "totalDamage": 1276.8
+    }
+  },
+  "reload": {
+    "weapon": {
+      "type": "rifle",
+      "magazine": 30,
+      "curAmmo": 10,
+      "totalAmmo": 15,
+      "reload": 2,
+      "reloading": false,
+      "reloadLeft": 0,
+      "reloadDuration": 0
+    },
+    "reloadMult": 0.5,
+    "dt": 0.125,
+    "expected": {
+      "frames": 8,
+      "curAmmo": 25,
+      "totalAmmo": 0
+    }
+  },
+  "hitSelection": [
+    {
+      "input": {
+        "obstacleDistance": 9,
+        "obstacleKind": "tree",
+        "propDistance": 12,
+        "boarDistance": 10,
+        "range": 130
+      },
+      "expected": "obstacle"
+    },
+    {
+      "input": {
+        "obstacleDistance": 10.4,
+        "obstacleKind": "structure",
+        "propDistance": 8,
+        "boarDistance": 10,
+        "range": 130
+      },
+      "expected": "prop"
+    },
+    {
+      "input": {
+        "obstacleDistance": 12,
+        "obstacleKind": "tree",
+        "propDistance": null,
+        "boarDistance": 10,
+        "range": 130
+      },
+      "expected": "boar"
+    },
+    {
+      "input": {
+        "obstacleDistance": null,
+        "propDistance": null,
+        "boarDistance": null,
+        "range": 70
+      },
+      "expected": "none"
+    }
+  ]
+}

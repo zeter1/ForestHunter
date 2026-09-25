@@ -2,58 +2,52 @@
 
 ## Цель
 
-Forest Hunter развивается как browser-first Three.js/WebGL FPS с постепенным extraction subsystem boundaries. Runtime сохраняет Three.js entity/orchestration side effects, а детерминированная gameplay-математика и environment ownership вынесены в отдельные модули.
+Forest Hunter развивается как browser-first Three.js/WebGL FPS с постепенным extraction subsystem boundaries. В 2.2 runtime ещё сильнее отделён от deterministic simulation: AI transitions, stochastic damage roll, reload/deployable timelines и hit ordering можно replay-ить без WebGL.
 
 ## Bootstrap
 
 `index.html` загружает:
 
 1. `src/core/storage.js` — localStorage JSON boundary.
-2. `src/game/config.js` — world/gameplay constants.
-3. `src/game/progression.js` — upgrade catalog, XP/level transitions и upgrade eligibility.
-4. `src/game/environment.js` — terrain, sky, instancing, decorations, campfires и adaptive visual budget.
-5. `src/ai/config.js` — difficulty и boar variants.
-6. `src/ai/boar-brain.js` — states, attacker slots, queue spacing, variant/cap/charge policies.
-7. `src/weapons/config.js` — weapon/ammo definitions.
-8. `src/weapons/geometry.js` — ray/collider geometry.
-9. `src/weapons/combat-rules.js` — weapon state, fire gate, damage, reload, deployable и blast rules.
-10. `src/audio/audio-system.js` — Web Audio.
-11. `src/ui/dom-cache.js` — DOM cache.
-12. `src/ui/hud-model.js` — pure HUD presentation model.
-13. `src/game/runtime.js` — Three.js entities, input, side effects и frame orchestration.
+2. `src/core/seeded-rng.js` — deterministic PRNG для regression replay.
+3. `src/game/config.js` — world/gameplay constants.
+4. `src/game/progression.js` — upgrades и XP transitions.
+5. `src/game/environment.js` — terrain/instancing/decorations.
+6. `src/ai/config.js` — difficulty/variants.
+7. `src/ai/boar-brain.js` — boar state simulation + attacker/queue/charge policy.
+8. `src/weapons/config.js` — weapon definitions.
+9. `src/weapons/geometry.js` — collision geometry.
+10. `src/weapons/combat-rules.js` — fire/damage/reload/deployable/hit-order simulation.
+11. `src/audio/audio-system.js` — Web Audio.
+12. `src/ui/dom-cache.js` — DOM cache.
+13. `src/ui/hud-model.js` — HUD model.
+14. `src/game/runtime.js` — Three.js entities, input, raycasts/effects и side-effect orchestration.
 
-Pure modules expose CommonJS in addition to browser namespace exports, so contract tests can run under Node without a browser.
+## Deterministic simulation boundary
 
-## Boundaries
+### Boar entity decisions
 
-### Boar AI
+`stepBoarState(state, context, dt, rng)` владеет переходами IDLE/PATROL/ALERT/CHASE/CHARGE/ATTACK, timers и stochastic cooldown/patrol generation. Runtime передаёт distance/world context и исполняет returned actions через Three.js movement, damage и animation.
 
-`boar-brain.js` owns deterministic state policy: attacker capacity, queue movement, charge speed, variant selection and population cap. `Boar` remains in runtime as the Three.js entity/render/animation shell; navigation side effects still use world collision.
+### Combat timeline
 
-### Weapons
+`rollShotDamage(..., rng)` отделяет stochastic crit roll от rendering. `stepReloadFrame` моделирует reload timeline. `advanceDeployableState` + `selectDeployableTarget` отделяют arming/lifetime/nearest-target policy от mesh side effects. `selectHitCandidate` фиксирует ordering obstacle/prop/boar после raycasts.
 
-`combat-rules.js` owns weapon state, fire gating, deterministic damage modifiers, spread, reload transitions, deployable limits/radii and explosion falloff. `geometry.js` owns ray-vs-cylinder/XZ collision. Mesh creation, raycasts and hit effects remain runtime concerns.
+### Replay fixtures
 
-### Environment
+`tests/fixtures/forest-replay.json` + `tests/scenarios.mjs` воспроизводят:
 
-`environment.js` owns terrain, sky, grass, hills, dust, instanced trees/bushes/rocks, decorations and campfire animation. Runtime supplies narrow callbacks for collision registration and shootable props.
+- 150 кадров boar CHASE → CHARGE → ATTACK;
+- 20 seeded damage rolls с deadly-shot cadence;
+- полный reload timeline;
+- hit-order и deployable target contracts.
 
-### Progression / HUD
-
-`progression.js` owns all upgrade definitions and XP-level transitions. `hud-model.js` computes health/XP, weapon statistics, contract/deployable presentation and alive-enemy count; runtime only applies the result to DOM.
+Это дополняет unit-style `tests/contracts.mjs` последовательностными regression scenarios.
 
 ## Verification
 
-`tests/contracts.mjs` runs without WebGL and covers:
+CI выполняет:
 
-- boar variant/cap/attacker/queue/charge policies;
-- weapon fire/damage/reload/deployable/blast contracts;
-- ray/collider geometry;
-- XP/level/boss-trigger transitions and upgrade eligibility;
-- HUD calculations.
+`syntax → structural validation → contract tests → deterministic replay scenarios → headless Chrome/WebGL boot → diff hygiene`.
 
-`scripts/validate-structure.mjs` fixes module order and prevents extracted subsystem logic from silently returning to runtime.
-
-CI runs syntax → structural validation → gameplay contract tests → headless Chrome/WebGL boot → diff hygiene.
-
-The browser boot proves initialization to `data-forest-boot="ready"`. Pointer lock, Web Audio, real GPU performance, full enemy behavior and gameplay balance remain interactive/manual verification layers.
+Headless boot подтверждает initialization до `data-forest-boot="ready"`. Pointer lock, Web Audio, реальный GPU performance, feel стрельбы и полный баланс остаются interactive/manual proof layers.

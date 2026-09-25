@@ -173,7 +173,9 @@ Deep Gameplay Decomposition разделяет runtime по subsystem contracts:
 
 ```text
 index.html
-├── src/core/storage.js
+├── src/core/
+│   ├── storage.js
+│   └── seeded-rng.js
 ├── src/game/
 │   ├── config.js
 │   ├── progression.js
@@ -190,12 +192,15 @@ index.html
 ├── src/ui/
 │   ├── dom-cache.js
 │   └── hud-model.js
-├── tests/contracts.mjs
+├── tests/
+│   ├── contracts.mjs
+│   ├── scenarios.mjs
+│   └── fixtures/forest-replay.json
 ├── scripts/validate-structure.mjs
 └── docs/ARCHITECTURE.md
 ```
 
-Environment ownership и чистая AI/combat/progression/HUD-математика вынесены из runtime; `src/game/runtime.js` остаётся Three.js entity/input/side-effect orchestration boundary. Подробнее: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+Environment ownership и чистая AI/combat/progression/HUD-математика вынесены из runtime. В 2.2 `stepBoarState`, seeded damage rolls, reload/deployable timelines и hit ordering стали replayable simulation contracts; `src/game/runtime.js` остаётся Three.js entity/input/effects orchestration boundary. Подробнее: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Диагностика
 
@@ -214,7 +219,7 @@ Environment ownership и чистая AI/combat/progression/HUD-математи
 
 - Игра ориентирована на ПК с клавиатурой и мышью.
 - Three.js загружается с внешнего CDN.
-- Three.js entity lifecycle, raycast side effects, input и часть gameplay orchestration пока остаются в `src/game/runtime.js`; environment и детерминированные AI/combat/progression/HUD contracts уже вынесены.
+- Three.js entity lifecycle, movement execution, raycasts/effects и input остаются в `src/game/runtime.js`; AI transitions и combat timelines уже проходят через dependency-injected simulation contracts.
 - Полного browser end-to-end набора пока нет; интерактивный gameplay требует отдельной runtime-проверки.
 - CI проверяет HTML/JavaScript и статическую раздачу, но не заменяет реальную WebGL/gameplay-проверку на GPU.
 
@@ -225,7 +230,8 @@ Workflow [`.github/workflows/validate.yml`](.github/workflows/validate.yml) за
 - синтаксис всех JavaScript-файлов;
 - module structure и порядок bootstrap;
 - gameplay contract tests для AI, combat/reload/deployables, collision, progression и HUD;
-- отсутствие возврата вынесенной subsystem logic в runtime;
+- deterministic replay scenarios для boar state machine, damage rolls, reload, hit ordering и deployables;
+- отсутствие возврата вынесенной simulation logic в runtime;
 - headless Chrome/WebGL boot до маркера `data-forest-boot="ready"`;
 - diff hygiene через `git diff --check`.
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-09-25 — Web Architecture & CI 2.2
+
+### Deterministic simulation
+
+- Boar state transitions/timers вынесены в `stepBoarState(..., rng)`; runtime исполняет returned movement/damage/animation actions.
+- Critical damage roll переведён на injected RNG contract через `rollShotDamage`.
+- Reload timeline вынесен в `stepReloadFrame`.
+- Deployable arming/lifetime и nearest-target selection разделены на pure simulation contracts.
+- Obstacle/prop/boar hit ordering вынесен в `selectHitCandidate`.
+- Добавлен `src/core/seeded-rng.js` для воспроизводимых regression scenarios.
+
+### Regression replay
+
+- Добавлен versioned fixture `tests/fixtures/forest-replay.json`.
+- `tests/scenarios.mjs` replay-ит 150 boar frames, 20 seeded damage rolls, reload timeline, deployable targeting и hit ordering.
+- GitHub Actions запускает deterministic replay scenarios перед headless WebGL boot.
+
+### Совместимость
+
+Three.js movement, raycasts, effects, audio, pointer lock и damage side effects остаются runtime concerns. Обычный gameplay продолжает использовать `Math.random`; seeded RNG предназначен для regression proof.
+
 ## 2026-09-25 — Web Architecture & CI 2.1
 
 ### Архитектура

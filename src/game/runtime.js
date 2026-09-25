@@ -15,8 +15,8 @@ if(!ForestHunter?.core||!ForestHunter?.game||!ForestHunter?.ai||!ForestHunter?.w
 }
 const {readJson,writeJson}=ForestHunter.core;
 const {CFG,createEnvironmentSystem,createUpgradeCatalog,canOfferUpgrade,upgradeCardCount,advanceXpState}=ForestHunter.game;
-const {DIFFICULTIES,BOAR_VARIANTS,BS,canJoinAttack,queueMovementDecision,chargeSpeed,chooseVariant,boarCap}=ForestHunter.ai;
-const {WDEFS,AMMO_COLORS,AMMO_NAMES,createWeapon,weaponFireGate,computeShotDamage,shotSpread,beginReloadState,finishReloadState,reloadProgress,deployableLimit,deployableTriggerRadius,blastFalloff,rayCircleDistanceXZ}=ForestHunter.weapons;
+const {DIFFICULTIES,BOAR_VARIANTS,BS,canJoinAttack,queueMovementDecision,chargeSpeed,chooseVariant,boarCap,stepBoarState}=ForestHunter.ai;
+const {WDEFS,AMMO_COLORS,AMMO_NAMES,createWeapon,weaponFireGate,rollShotDamage,shotSpread,beginReloadState,reloadProgress,stepReloadFrame,deployableLimit,advanceDeployableState,selectDeployableTarget,blastFalloff,selectHitCandidate,rayCircleDistanceXZ}=ForestHunter.weapons;
 const {createAudioSystem}=ForestHunter.audio;
 const {createDomCache,buildPlayerHud,buildWeaponHud,buildContractHud,buildDeployableHud,countAliveBoars}=ForestHunter.ui;
 const SETTINGS = {difficulty:'normal',diff:DIFFICULTIES.normal,quality:'medium',sensitivity:0.002,volume:0.7};
@@ -614,103 +614,73 @@ class Boar{
     const toLen=toP.length();
     let moveSpeed=0;
 
-    switch(this.state){
-      case BS.IDLE:
-        this.idleT-=dt;
-        if(dist<this.alertRadius)this.state=BS.CHASE;
-        else if(this.idleT<=0){
-          this.state=BS.PATROL;
-          const off=new THREE.Vector3((Math.random()-.5)*35,0,(Math.random()-.5)*35);
-          this.patrolTarget=this.mesh.position.clone().add(off);
-          this.idleT=3+Math.random()*4;
+    const patrolDistance=this.patrolTarget
+      ? Math.hypot(this.patrolTarget.x-this.mesh.position.x,this.patrolTarget.z-this.mesh.position.z)
+      : Infinity;
+    const decision=stepBoarState({
+      state:this.state,idleT:this.idleT,alertTimer:this.alertTimer,
+      chargeCooldown:this.chargeCooldown,chargeT:this.chargeT,attackCooldown:this.attackCooldown,
+      isBoss:this.isBoss,attackRange:this.attackRange,alertRadius:this.alertRadius
+    },{
+      distance:dist,canAttack:canBoarAttack(this,pp),
+      hasPatrolTarget:Boolean(this.patrolTarget),patrolDistance
+    },dt,Math.random);
+
+    this.state=decision.state;
+    this.idleT=decision.idleT;
+    this.alertTimer=decision.alertTimer;
+    this.chargeCooldown=decision.chargeCooldown;
+    this.chargeT=decision.chargeT;
+    this.attackCooldown=decision.attackCooldown;
+
+    if(decision.newPatrolOffset){
+      this.patrolTarget=this.mesh.position.clone().add(new THREE.Vector3(decision.newPatrolOffset.x,0,decision.newPatrolOffset.z));
+    }
+    if(decision.alertPulse){
+      boars.forEach(b=>{
+        if(b!==this&&!b.dead&&b.mesh.position.distanceTo(this.mesh.position)<16){
+          if(b.state===BS.IDLE||b.state===BS.PATROL)b.state=BS.CHASE;
         }
-        break;
-      case BS.PATROL:
-        if(dist<this.alertRadius){this.state=BS.CHASE;break;}
-        if(!this.patrolTarget){this.state=BS.IDLE;break;}
-        const toPat=new THREE.Vector3().subVectors(this.patrolTarget,this.mesh.position); toPat.y=0;
-        if(toPat.length()<1.2){this.state=BS.IDLE;this.idleT=1.5+Math.random()*2;break;}
+      });
+    }
+    if(decision.captureChargeDirection&&toLen>0.01)this.chargeDir.copy(toP).normalize();
+
+    if(decision.action==='queue'){
+      moveSpeed=keepBoarAtAttackQueueDistance(this,pp,dt);
+    }else if(decision.action==='patrol'&&this.patrolTarget){
+      const toPat=new THREE.Vector3().subVectors(this.patrolTarget,this.mesh.position);toPat.y=0;
+      if(toPat.lengthSq()>0.0001){
         toPat.normalize();
         this.mesh.rotation.y=Math.atan2(toPat.x,toPat.z);
         moveSpeed=moveBoarSafely(this,toPat,this.speed*0.32*dt)?this.speed*0.32:0;
-        this.idleT-=dt;
-        if(this.idleT<=0){this.state=BS.IDLE;}
-        break;
-      case BS.ALERT:
-        this.alertTimer+=dt;
-        if(this.alertTimer>0.5){
-          this.alertTimer=0;
-          boars.forEach(b=>{
-            if(b!==this&&!b.dead&&b.mesh.position.distanceTo(this.mesh.position)<16){
-              if(b.state===BS.IDLE||b.state===BS.PATROL)b.state=BS.CHASE;
-            }
-          });
-        }
-        if(dist<this.alertRadius||this.isBoss)this.state=BS.CHASE;
-        else if(dist>this.alertRadius*1.6)this.state=BS.PATROL;
-        break;
-      case BS.CHASE:
-        this.chargeCooldown-=dt;
-        if(!canBoarAttack(this,pp)){
-          moveSpeed=keepBoarAtAttackQueueDistance(this,pp,dt);
-          break;
-        }
-        if(this.chargeCooldown<=0&&dist<30&&dist>4&&!this.isBoss){
-          this.state=BS.CHARGE;
-          if(toLen>0.01){this.chargeDir.copy(toP).normalize();}
-          this.chargeT=0.95;
-          this.chargeCooldown=3.0+Math.random()*2.6;
-          break;
-        }
-        if(dist<this.attackRange){this.state=BS.ATTACK;this.attackCooldown=Math.max(this.attackCooldown,0.34);break;}
-        if(toLen>0.01){
-          toP.normalize();
-          this.mesh.rotation.y=Math.atan2(toP.x,toP.z);
-          moveSpeed=moveBoarSafely(this,toP,this.speed*dt)?this.speed:0;
-        }
-        break;
-      case BS.CHARGE:
-        if(!canBoarAttack(this,pp)){
-          this.state=BS.CHASE;
-          this.chargeT=0;
-          break;
-        }
-        this.chargeT-=dt;
-        // Короткая читаемая подготовка к рывку даёт игроку шанс увернуться.
-        if(this.chargeT>0.65){
-          if(toLen>0.01){this.chargeDir.copy(toP).normalize();this.mesh.rotation.y=Math.atan2(this.chargeDir.x,this.chargeDir.z);}
-          moveSpeed=0;
-          break;
-        }
-        const chSpd=chargeSpeed(this.speed,this.variantKey);
-        if(moveBoarSafely(this,this.chargeDir,chSpd*dt))moveSpeed=chSpd;
-        else {this.state=BS.CHASE;this.chargeT=0;this.chargeCooldown=Math.max(this.chargeCooldown,1.2);}
-        if(dist<this.attackRange){
-          playerTakeDmg(this.damage*2.1,this.mesh.position);
-          playerKnockback(this.mesh.position,this.isBoss?9.0:6.8,this.isBoss?17:12.5);
-          this.state=BS.CHASE;
-          this.chargeT=0;
-        }
-        if(this.chargeT<=0)this.state=BS.CHASE;
-        break;
-      case BS.ATTACK:
-        if(!canBoarAttack(this,pp)){
-          this.state=BS.CHASE;
-          break;
-        }
-        this.attackCooldown-=dt;
-        if(this.attackCooldown<=0){
-          playerTakeDmg(this.damage,this.mesh.position);
-          playerKnockback(this.mesh.position,this.isBoss?7.0:5.0,this.isBoss?15:10.5);
-          this.attackCooldown=0.85;
-          if(this.head){
-            const baseZ=Number.isFinite(this.headBaseZ)?this.headBaseZ:0.96;
-            this.head.position.z=baseZ+0.18;
-            setTimeout(()=>{if(this.head&&!this.dead)this.head.position.z=baseZ;},160);
-          }
-        }
-        if(dist>this.attackRange+1)this.state=BS.CHASE;
-        break;
+      }
+    }else if(decision.action==='chase'&&toLen>0.01){
+      toP.normalize();
+      this.mesh.rotation.y=Math.atan2(toP.x,toP.z);
+      moveSpeed=moveBoarSafely(this,toP,this.speed*dt)?this.speed:0;
+    }else if(decision.action==='chargeWindup'){
+      if(toLen>0.01){this.chargeDir.copy(toP).normalize();this.mesh.rotation.y=Math.atan2(this.chargeDir.x,this.chargeDir.z);}
+    }else if(decision.action==='chargeMove'){
+      const chSpd=chargeSpeed(this.speed,this.variantKey);
+      if(moveBoarSafely(this,this.chargeDir,chSpd*dt))moveSpeed=chSpd;
+      else {this.state=BS.CHASE;this.chargeT=0;this.chargeCooldown=Math.max(this.chargeCooldown,1.2);}
+      if(dist<this.attackRange){
+        playerTakeDmg(this.damage*2.1,this.mesh.position);
+        playerKnockback(this.mesh.position,this.isBoss?9.0:6.8,this.isBoss?17:12.5);
+        this.state=BS.CHASE;
+        this.chargeT=0;
+      }
+      if(decision.chargeExpired)this.state=BS.CHASE;
+    }
+
+    if(decision.attack){
+      playerTakeDmg(this.damage,this.mesh.position);
+      playerKnockback(this.mesh.position,this.isBoss?7.0:5.0,this.isBoss?15:10.5);
+      if(this.head){
+        const baseZ=Number.isFinite(this.headBaseZ)?this.headBaseZ:0.96;
+        this.head.position.z=baseZ+0.18;
+        setTimeout(()=>{if(this.head&&!this.dead)this.head.position.z=baseZ;},160);
+      }
     }
 
     // Leg animation
@@ -983,12 +953,12 @@ function shoot(){
   camera.rotation.x=Math.min(Math.PI/2-0.01,camera.rotation.x+recoilAmt);
 
   P.shotCount++;
-  const damageState=computeShotDamage({
+  const damageState=rollShotDamage({
     baseDamage:w.dmg,dmgMult:P.dmgMult,
     berserker:P.berserker,hp:P.hp,maxHp:P.maxHp,
     deadlyShot:P.deadlyShot,shotCount:P.shotCount,
-    critChance:P.critChance,critRoll:Math.random()
-  });
+    critChance:P.critChance
+  },Math.random);
   let dmg=damageState.damage;
   const isCrit=damageState.critical;
   if(damageState.deadly)showMsg('☠ СМЕРТЕЛЬНЫЙ ВЫСТРЕЛ!',700);
@@ -1084,28 +1054,29 @@ function doHit(rc,dmg,startPos,crit,opts={}){
     }
   }
 
-  const candidates=[];
-  const obstacleTolerance=obstacle&&obstacle.kind==='structure'?.72:.3;
-  if(obstacle&&(!liveHit||obstacle.distance+obstacleTolerance<liveHit.hit.distance))candidates.push({type:'obstacle',distance:obstacle.distance,data:obstacle});
-  if(propHit&&propHit.hit.distance<=range)candidates.push({type:'prop',distance:propHit.hit.distance,data:propHit});
-  if(liveHit&&liveHit.hit.distance<=range)candidates.push({type:'boar',distance:liveHit.hit.distance,data:liveHit});
-  candidates.sort((a,b)=>a.distance-b.distance);
-  const first=candidates[0];
+  const first=selectHitCandidate({
+    obstacleDistance:obstacle?.distance,
+    obstacleKind:obstacle?.kind,
+    propDistance:propHit?.hit?.distance,
+    boarDistance:liveHit?.hit?.distance,
+    range
+  });
 
-  if(first&&first.type==='obstacle'){
+
+  if(first.type==='obstacle'){
     if(opts.visualTracer!==false)FX.tracer(startPos,first.data.point,opts.weaponType);
     FX.impact(first.data.point,false);
     if(hasBlast)explode(first.data.point,opts.explosionRadius,opts.explosionDmg*0.8);
     return;
   }
-  if(first&&first.type==='prop'){
+  if(first.type==='prop'){
     const {hit,prop}=first.data;
     if(opts.visualTracer!==false)FX.tracer(startPos,hit.point,opts.weaponType);
     damageProp(prop,dmg,hit.point);
     if(hasBlast)explode(hit.point,opts.explosionRadius,opts.explosionDmg*0.75);
     return;
   }
-  if(first&&first.type==='boar'){
+  if(first.type==='boar'){
     const {hit:h,boar}=first.data;
     const headshot=userDataUp(h.object,'hitZone')==='head'&&!hasBlast;
     const dealt=dmg*(headshot?1.8:1);
@@ -1154,13 +1125,11 @@ function updateReloadBar(w){
   DOM.reloadFill.style.transition='none';
   DOM.reloadFill.style.width=pct+'%';
 }
-function finishReload(w){finishReloadState(w);}
 function updateReloads(dt){
   let changed=false;
   P.weapons.forEach(w=>{
-    if(!w.reloading)return;
-    w.reloadLeft-=dt;
-    if(w.reloadLeft<=0){finishReload(w);changed=true;}
+    const state=stepReloadFrame(w,dt);
+    if(state.completed)changed=true;
   });
   const cur=P.weapons[P.curWeapon];
   updateReloadBar(cur);
@@ -1220,14 +1189,23 @@ function triggerDeployable(d,boar){
 }
 function updateDeployables(dt){
   for(let i=deployables.length-1;i>=0;i--){
-    const d=deployables[i];if(d.removed)continue;d.age+=dt;
-    if(d.type==='mine'){const lamp=d.mesh.children.find(c=>c.userData.indicator);if(lamp)lamp.visible=d.age<d.armTime?Math.floor(d.age*8)%2===0:true;}
-    if(d.age>CFG.deployableLifetime){removeDeployable(d);continue;}
-    if(d.age<d.armTime||d.triggered)continue;
-    const radius=deployableTriggerRadius(d.type);
-    let target=null,best=radius*radius;
-    for(const b of boars){if(b.dead||b.dying||b.removed)continue;const ds=b.mesh.position.distanceToSquared(d.mesh.position);if(ds<best){best=ds;target=b;}}
-    if(target)triggerDeployable(d,target);
+    const d=deployables[i];if(d.removed)continue;
+    const state=advanceDeployableState(d,dt,CFG.deployableLifetime);
+    d.age=state.age;
+    if(d.type==='mine'){
+      const lamp=d.mesh.children.find(c=>c.userData.indicator);
+      if(lamp)lamp.visible=d.age<d.armTime?Math.floor(d.age*8)%2===0:true;
+    }
+    if(state.expired){removeDeployable(d);continue;}
+    if(!state.armed)continue;
+    const distances=[];
+    for(let bi=0;bi<boars.length;bi++){
+      const b=boars[bi];
+      if(b.dead||b.dying||b.removed)continue;
+      distances.push({index:bi,distanceSq:b.mesh.position.distanceToSquared(d.mesh.position)});
+    }
+    const target=selectDeployableTarget(distances,state.radius);
+    if(target.targetIndex>=0)triggerDeployable(d,boars[target.targetIndex]);
   }
 }
 
