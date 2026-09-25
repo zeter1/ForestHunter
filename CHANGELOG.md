@@ -17,6 +17,7 @@
 - Добавлен `tests/contracts.mjs` для AI, weapon/reload/deployable, collision, progression и HUD contracts.
 - Structural validator фиксирует новые module boundaries.
 - GitHub Actions запускает contract tests перед headless Chrome/WebGL boot smoke.
+- Floating-point assertions проверяют числовой contract с допуском, а не двоичное представление decimal literal.
 
 ### Совместимость
 

@@ -27,7 +27,7 @@ weapon.curAmmo=0;assert.equal(combat.weaponFireGate(weapon,{shootOnce:true,now:2
 weapon.curAmmo=10;
 const shot=combat.computeShotDamage({baseDamage:20,dmgMult:1.5,berserker:true,hp:40,maxHp:100,deadlyShot:true,shotCount:5,critChance:.5,critRoll:.2});
 assert.equal(shot.damage,252);assert.equal(shot.deadly,true);assert.equal(shot.critical,true);
-assert.equal(combat.shotSpread(.1,true),.022);
+assert.ok(Math.abs(combat.shotSpread(.1,true)-.022)<1e-12);
 assert.equal(combat.beginReloadState(weapon,.5),true);
 weapon.reloadLeft=weapon.reloadDuration/2;assert.equal(combat.reloadProgress(weapon),50);
 weapon.curAmmo=10;weapon.totalAmmo=15;weapon.magazine=30;assert.equal(combat.finishReloadState(weapon),15);assert.equal(weapon.curAmmo,25);assert.equal(weapon.totalAmmo,0);
