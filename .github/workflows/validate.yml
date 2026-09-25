@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - "index.html"
+      - "src/**"
+      - "scripts/**"
       - ".github/workflows/validate.yml"
   pull_request:
     paths:
       - "index.html"
+      - "src/**"
+      - "scripts/**"
       - ".github/workflows/validate.yml"
   workflow_dispatch:
 
@@ -20,9 +24,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  static-validation:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,64 +36,16 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Parse HTML and check inline JavaScript
+      - name: JavaScript syntax
         shell: bash
         run: |
-          python3 - <<'PY'
-          import re
-          import subprocess
-          from html.parser import HTMLParser
-          from pathlib import Path
-          from urllib.parse import urlsplit
+          find src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check scripts/validate-structure.mjs
 
-          html = Path("index.html").read_text(encoding="utf-8")
+      - name: Project structure
+        run: node scripts/validate-structure.mjs
 
-          class ParseOnly(HTMLParser):
-              pass
-
-          ParseOnly().feed(html)
-
-          scripts = []
-          pattern = re.compile(r"<script(?P<attrs>[^>]*)>(?P<body>[\s\S]*?)</script>", re.IGNORECASE)
-          for match in pattern.finditer(html):
-              attrs = match.group("attrs")
-              body = match.group("body")
-              if re.search(r"\bsrc\s*=", attrs, re.IGNORECASE):
-                  continue
-              type_match = re.search(r'\btype\s*=\s*["\']([^"\']+)["\']', attrs, re.IGNORECASE)
-              if type_match and type_match.group(1).lower() not in ("text/javascript", "application/javascript", "module"):
-                  continue
-              if body.strip():
-                  scripts.append(body)
-
-          if not scripts:
-              raise SystemExit("No inline JavaScript blocks found")
-
-          for index, body in enumerate(scripts, start=1):
-              tmp = Path(f"/tmp/forest-inline-{index}.js")
-              tmp.write_text(body, encoding="utf-8")
-              subprocess.run(["node", "--check", str(tmp)], check=True)
-
-          refs = set()
-          for attr in ("src", "href"):
-              for value in re.findall(rf'\b{attr}\s*=\s*["\']([^"\']+)["\']', html, re.IGNORECASE):
-                  if value.startswith(("#", "data:", "mailto:", "tel:", "javascript:")):
-                      continue
-                  parts = urlsplit(value)
-                  if parts.scheme or parts.netloc:
-                      continue
-                  path = parts.path.lstrip("/")
-                  if path:
-                      refs.add(path)
-
-          missing = [ref for ref in sorted(refs) if not Path(ref).exists()]
-          if missing:
-              raise SystemExit("Missing local assets: " + ", ".join(missing))
-
-          print(f"Validated {len(scripts)} inline JavaScript block(s)")
-          PY
-
-      - name: Static server smoke
+      - name: Browser boot smoke
         shell: bash
         run: |
           python3 -m http.server 8000 > /tmp/forest-http.log 2>&1 &
@@ -97,13 +53,23 @@ jobs:
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
 
           for attempt in {1..20}; do
-            if curl -fsS http://127.0.0.1:8000/ >/dev/null; then
-              break
-            fi
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null; then break; fi
             sleep 0.25
           done
 
-          curl -fsS http://127.0.0.1:8000/ >/dev/null
+          chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$chrome" ]; then echo "Chrome/Chromium is not installed on the runner."; exit 1; fi
+
+          "$chrome"             --headless=new             --no-sandbox             --disable-dev-shm-usage             --enable-webgl             --enable-unsafe-swiftshader             --ignore-gpu-blocklist             --virtual-time-budget=18000             --dump-dom http://127.0.0.1:8000/             > /tmp/forest-dom.html 2> /tmp/forest-chrome.log
+
+          if ! grep -q 'data-forest-boot="ready"' /tmp/forest-dom.html; then
+            echo "Game did not reach the boot-ready marker."
+            echo "--- HTTP log ---"; cat /tmp/forest-http.log
+            echo "--- Chrome log ---"; cat /tmp/forest-chrome.log
+            echo "--- DOM tail ---"; tail -n 80 /tmp/forest-dom.html
+            exit 1
+          fi
+          echo "Forest Hunter browser boot smoke passed."
 
       - name: Diff hygiene
         run: git diff --check

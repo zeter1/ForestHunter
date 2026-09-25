@@ -117,13 +117,9 @@
 
 ## Запуск
 
-Игра состоит из одного основного файла:
+Основной entrypoint — `index.html`, а JavaScript runtime разделён по `src/`.
 
-```text
-index.html
-```
-
-Можно открыть его напрямую в современном браузере, однако для более предсказуемой работы рекомендуется локальный HTTP-сервер:
+Можно открыть проект напрямую в современном браузере, однако для более предсказуемой работы рекомендуется локальный HTTP-сервер:
 
 ```bash
 python -m http.server 8000
@@ -173,30 +169,23 @@ python -m http.server 8000
 
 ## Архитектура
 
-Текущая версия — автономное одностраничное приложение:
+Первый modularization pass вынес большой inline runtime из `index.html` и зафиксировал основные subsystem boundaries:
 
 ```text
 index.html
-├── CSS и интерфейс
-├── стартовое меню / пауза / смерть
-├── настройки
-├── Three.js renderer / scene / camera
-├── генерация лесного окружения
-├── система оружия
-├── стрельба и hit detection
-├── AI кабанов
-├── босс
-├── лут и pickups
-├── капканы и мины
-├── контракты
-├── система XP и upgrades
-├── HUD
-├── Web Audio
-├── сохранение настроек / рекордов
-└── главный игровой цикл
+├── src/core/storage.js
+├── src/game/
+│   ├── config.js
+│   └── runtime.js
+├── src/ai/config.js
+├── src/weapons/config.js
+├── src/audio/audio-system.js
+├── src/ui/dom-cache.js
+├── scripts/validate-structure.mjs
+└── docs/ARCHITECTURE.md
 ```
 
-Для текущего формата это удобно: игру можно распространять одним HTML-файлом. При дальнейшем росте проекта логичным следующим шагом будет разделение игрового ядра, AI, оружия, UI и рендера на отдельные модули.
+Подробная карта и следующий порядок extraction: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Диагностика
 
@@ -215,21 +204,21 @@ index.html
 
 - Игра ориентирована на ПК с клавиатурой и мышью.
 - Three.js загружается с внешнего CDN.
-- Весь код пока находится в одном HTML-файле.
+- Основная orchestration/gameplay logic пока остаётся в `src/game/runtime.js` и будет делиться дальше по subsystem boundaries.
 - Полного browser end-to-end набора пока нет; интерактивный gameplay требует отдельной runtime-проверки.
 - CI проверяет HTML/JavaScript и статическую раздачу, но не заменяет реальную WebGL/gameplay-проверку на GPU.
 
 ## Проверка и CI
 
-Workflow [`.github/workflows/validate.yml`](.github/workflows/validate.yml) запускается на изменениях `index.html` и самого workflow. Он проверяет:
+Workflow [`.github/workflows/validate.yml`](.github/workflows/validate.yml) запускается на изменениях `index.html`, `src/**`, `scripts/**` и workflow. Он проверяет:
 
-- корректность HTML parsing;
-- синтаксис каждого inline JavaScript-блока через `node --check`;
-- существование локальных ресурсов, если они появляются в HTML;
-- отдачу `index.html` через локальный HTTP-сервер;
+- синтаксис всех JavaScript-файлов;
+- module structure и порядок bootstrap;
+- отсутствие возврата большого inline runtime;
+- headless Chrome boot до маркера `data-forest-boot="ready"`;
 - diff hygiene через `git diff --check`.
 
-CI **не доказывает** корректность реального WebGL/gameplay runtime: FPS, pointer lock, Web Audio, GPU rendering, баланс и поведение AI требуют отдельного browser smoke/manual runtime.
+CI **не доказывает** полный gameplay runtime: pointer lock, Web Audio, GPU performance, баланс и поведение AI требуют отдельного interactive/manual уровня.
 
 ### Рекомендуемый runtime smoke test
 
