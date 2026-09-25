@@ -16,6 +16,7 @@
 - Добавлен versioned fixture `tests/fixtures/forest-replay.json`.
 - `tests/scenarios.mjs` replay-ит 150 boar frames, 20 seeded damage rolls, reload timeline, deployable targeting и hit ordering.
 - GitHub Actions запускает deterministic replay scenarios перед headless WebGL boot.
+- Replay test поймал edge case: отсутствующая hit-distance (`null`) превращалась через `Number(null)` в `0`; hit selector теперь явно различает missing и real distance.
 
 ### Совместимость
 

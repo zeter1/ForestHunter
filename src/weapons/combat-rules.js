@@ -83,12 +83,16 @@
 
   function selectHitCandidate({obstacleDistance=null,obstacleKind='none',propDistance=null,boarDistance=null,range=130}={}){
     const maxRange=Math.max(0,Number(range)||0);
-    const boar=Number.isFinite(Number(boarDistance))&&Number(boarDistance)<=maxRange?Number(boarDistance):null;
+    const asDistance=value=>{
+      if(value===null||value===undefined)return null;
+      const distance=Number(value);
+      return Number.isFinite(distance)&&distance>=0&&distance<=maxRange?distance:null;
+    };
+    const boar=asDistance(boarDistance);
     const tolerance=obstacleKind==='structure'?0.72:0.3;
-    const obstacle=Number.isFinite(Number(obstacleDistance))&&Number(obstacleDistance)<=maxRange&&
-      (boar===null||Number(obstacleDistance)+tolerance<boar)
-      ?Number(obstacleDistance):null;
-    const prop=Number.isFinite(Number(propDistance))&&Number(propDistance)<=maxRange?Number(propDistance):null;
+    const rawObstacle=asDistance(obstacleDistance);
+    const obstacle=rawObstacle!==null&&(boar===null||rawObstacle+tolerance<boar)?rawObstacle:null;
+    const prop=asDistance(propDistance);
     const choices=[];
     if(obstacle!==null)choices.push({type:'obstacle',distance:obstacle});
     if(prop!==null)choices.push({type:'prop',distance:prop});
