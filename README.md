@@ -1,5 +1,7 @@
 # 🐗 Forest Hunter — Ultimate Hunt
 
+[![Validate](https://github.com/zeter1/ForestHunter/actions/workflows/validate.yml/badge.svg)](https://github.com/zeter1/ForestHunter/actions/workflows/validate.yml)
+
 **Forest Hunter — Ultimate Hunt** — браузерный 3D FPS на **Three.js/WebGL**, в котором игрок охотится на кабанов, собирает оружие и припасы, выполняет контракты, прокачивает персонажа и сражается с боссом **Альфа-вепрём**.
 
 Текущая версия игры: **2026.07.27-improved**.
@@ -214,22 +216,22 @@ index.html
 - Игра ориентирована на ПК с клавиатурой и мышью.
 - Three.js загружается с внешнего CDN.
 - Весь код пока находится в одном HTML-файле.
-- Автоматизированных браузерных end-to-end тестов пока нет.
-- GitHub Actions / CI пока не настроены.
+- Полного browser end-to-end набора пока нет; интерактивный gameplay требует отдельной runtime-проверки.
+- CI проверяет HTML/JavaScript и статическую раздачу, но не заменяет реальную WebGL/gameplay-проверку на GPU.
 
-## Проверка
+## Проверка и CI
 
-Перед публикацией JavaScript из HTML был извлечён и проверен командой:
+Workflow [`.github/workflows/validate.yml`](.github/workflows/validate.yml) запускается на изменениях `index.html` и самого workflow. Он проверяет:
 
-```bash
-node --check
-```
+- корректность HTML parsing;
+- синтаксис каждого inline JavaScript-блока через `node --check`;
+- существование локальных ресурсов, если они появляются в HTML;
+- отдачу `index.html` через локальный HTTP-сервер;
+- diff hygiene через `git diff --check`.
 
-Синтаксических ошибок не обнаружено.
+CI **не доказывает** корректность реального WebGL/gameplay runtime: FPS, pointer lock, Web Audio, GPU rendering, баланс и поведение AI требуют отдельного browser smoke/manual runtime.
 
-Также выполнена точная проверка целостности: Git blob SHA локального исходника совпадает с Git blob SHA файла `index.html` в GitHub.
-
-### Рекомендуемый smoke test
+### Рекомендуемый runtime smoke test
 
 1. Открыть стартовое меню.
 2. Изменить сложность и графику.
@@ -243,6 +245,12 @@ node --check
 10. Выполнить контракт.
 11. Проверить появление босса.
 12. Проверить смерть, итоговый экран и сохранение рекорда.
+
+## Безопасность и bug reports
+
+Политика ответственного сообщения об уязвимостях: **[SECURITY.md](SECURITY.md)**.
+
+Для воспроизводимого бага используйте **[Bug report](https://github.com/zeter1/ForestHunter/issues/new?template=bug_report.yml)**. Укажите браузер, GPU/WebGL-среду, качество графики, оружие/перки/тип противника, приблизительный FPS и точные шаги.
 
 ---
 

@@ -1,0 +1,75 @@
+name: Bug report
+description: Сообщить о воспроизводимой проблеме в Forest Hunter
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: browser
+    attributes:
+      label: Браузер и версия
+      placeholder: "Chrome 140 / Firefox 142"
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU / WebGL
+      placeholder: "RTX 4060, WebGL2 enabled"
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options:
+        - Запуск / Three.js
+        - Движение / pointer lock / камера
+        - Оружие / стрельба / hit detection
+        - AI кабанов / босс
+        - Контракты / XP / upgrades
+        - Лут / traps / mines
+        - Web Audio
+        - Производительность / FPS / качество
+        - WebGL / rendering
+        - Рекорды / localStorage
+        - Другое
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Открыть ...
+        2. Выбрать оружие ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактический результат
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
+    validations:
+      required: true
+
+  - type: input
+    id: gameplay
+    attributes:
+      label: Качество / FPS / оружие / противник
+      placeholder: "High, ~50 FPS, СВД, бронированный кабан"
+
+  - type: textarea
+    id: console
+    attributes:
+      label: DevTools Console
+      description: Небольшой релевантный фрагмент без секретов.
+      render: text

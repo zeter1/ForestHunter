@@ -1,0 +1,109 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - ".github/workflows/validate.yml"
+  pull_request:
+    paths:
+      - "index.html"
+      - ".github/workflows/validate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Parse HTML and check inline JavaScript
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          import subprocess
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          html = Path("index.html").read_text(encoding="utf-8")
+
+          class ParseOnly(HTMLParser):
+              pass
+
+          ParseOnly().feed(html)
+
+          scripts = []
+          pattern = re.compile(r"<script(?P<attrs>[^>]*)>(?P<body>[\s\S]*?)</script>", re.IGNORECASE)
+          for match in pattern.finditer(html):
+              attrs = match.group("attrs")
+              body = match.group("body")
+              if re.search(r"\bsrc\s*=", attrs, re.IGNORECASE):
+                  continue
+              type_match = re.search(r'\btype\s*=\s*["\']([^"\']+)["\']', attrs, re.IGNORECASE)
+              if type_match and type_match.group(1).lower() not in ("text/javascript", "application/javascript", "module"):
+                  continue
+              if body.strip():
+                  scripts.append(body)
+
+          if not scripts:
+              raise SystemExit("No inline JavaScript blocks found")
+
+          for index, body in enumerate(scripts, start=1):
+              tmp = Path(f"/tmp/forest-inline-{index}.js")
+              tmp.write_text(body, encoding="utf-8")
+              subprocess.run(["node", "--check", str(tmp)], check=True)
+
+          refs = set()
+          for attr in ("src", "href"):
+              for value in re.findall(rf'\b{attr}\s*=\s*["\']([^"\']+)["\']', html, re.IGNORECASE):
+                  if value.startswith(("#", "data:", "mailto:", "tel:", "javascript:")):
+                      continue
+                  parts = urlsplit(value)
+                  if parts.scheme or parts.netloc:
+                      continue
+                  path = parts.path.lstrip("/")
+                  if path:
+                      refs.add(path)
+
+          missing = [ref for ref in sorted(refs) if not Path(ref).exists()]
+          if missing:
+              raise SystemExit("Missing local assets: " + ", ".join(missing))
+
+          print(f"Validated {len(scripts)} inline JavaScript block(s)")
+          PY
+
+      - name: Static server smoke
+        shell: bash
+        run: |
+          python3 -m http.server 8000 > /tmp/forest-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          curl -fsS http://127.0.0.1:8000/ >/dev/null
+
+      - name: Diff hygiene
+        run: git diff --check
