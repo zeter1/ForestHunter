@@ -169,23 +169,33 @@ python -m http.server 8000
 
 ## Архитектура
 
-Первый modularization pass вынес большой inline runtime из `index.html` и зафиксировал основные subsystem boundaries:
+Deep Gameplay Decomposition разделяет runtime по subsystem contracts:
 
 ```text
 index.html
 ├── src/core/storage.js
 ├── src/game/
 │   ├── config.js
+│   ├── progression.js
+│   ├── environment.js
 │   └── runtime.js
-├── src/ai/config.js
-├── src/weapons/config.js
+├── src/ai/
+│   ├── config.js
+│   └── boar-brain.js
+├── src/weapons/
+│   ├── config.js
+│   ├── geometry.js
+│   └── combat-rules.js
 ├── src/audio/audio-system.js
-├── src/ui/dom-cache.js
+├── src/ui/
+│   ├── dom-cache.js
+│   └── hud-model.js
+├── tests/contracts.mjs
 ├── scripts/validate-structure.mjs
 └── docs/ARCHITECTURE.md
 ```
 
-Подробная карта и следующий порядок extraction: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+Environment ownership и чистая AI/combat/progression/HUD-математика вынесены из runtime; `src/game/runtime.js` остаётся Three.js entity/input/side-effect orchestration boundary. Подробнее: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Диагностика
 
@@ -204,7 +214,7 @@ index.html
 
 - Игра ориентирована на ПК с клавиатурой и мышью.
 - Three.js загружается с внешнего CDN.
-- Основная orchestration/gameplay logic пока остаётся в `src/game/runtime.js` и будет делиться дальше по subsystem boundaries.
+- Three.js entity lifecycle, raycast side effects, input и часть gameplay orchestration пока остаются в `src/game/runtime.js`; environment и детерминированные AI/combat/progression/HUD contracts уже вынесены.
 - Полного browser end-to-end набора пока нет; интерактивный gameplay требует отдельной runtime-проверки.
 - CI проверяет HTML/JavaScript и статическую раздачу, но не заменяет реальную WebGL/gameplay-проверку на GPU.
 
@@ -214,8 +224,9 @@ Workflow [`.github/workflows/validate.yml`](.github/workflows/validate.yml) за
 
 - синтаксис всех JavaScript-файлов;
 - module structure и порядок bootstrap;
-- отсутствие возврата большого inline runtime;
-- headless Chrome boot до маркера `data-forest-boot="ready"`;
+- gameplay contract tests для AI, combat/reload/deployables, collision, progression и HUD;
+- отсутствие возврата вынесенной subsystem logic в runtime;
+- headless Chrome/WebGL boot до маркера `data-forest-boot="ready"`;
 - diff hygiene через `git diff --check`.
 
 CI **не доказывает** полный gameplay runtime: pointer lock, Web Audio, GPU performance, баланс и поведение AI требуют отдельного interactive/manual уровня.

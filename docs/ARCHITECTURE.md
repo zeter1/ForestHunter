@@ -2,33 +2,58 @@
 
 ## Цель
 
-Проект переводится от одного большого inline runtime к модульной browser-first архитектуре без рискованного полного rewrite.
+Forest Hunter развивается как browser-first Three.js/WebGL FPS с постепенным extraction subsystem boundaries. Runtime сохраняет Three.js entity/orchestration side effects, а детерминированная gameplay-математика и environment ownership вынесены в отдельные модули.
 
 ## Bootstrap
 
-`index.html` оставляет HTML/CSS и Three.js CDN bootstrap, а игровой JavaScript загружается в фиксированном порядке:
+`index.html` загружает:
 
-1. `src/core/storage.js` — безопасный localStorage JSON boundary.
+1. `src/core/storage.js` — localStorage JSON boundary.
 2. `src/game/config.js` — world/gameplay constants.
-3. `src/ai/config.js` — difficulty и boar variants.
-4. `src/weapons/config.js` — weapon/ammo definitions.
-5. `src/audio/audio-system.js` — Web Audio subsystem.
-6. `src/ui/dom-cache.js` — централизованный HUD DOM cache.
-7. `src/game/runtime.js` — orchestration и оставшаяся gameplay/rendering logic.
+3. `src/game/progression.js` — upgrade catalog, XP/level transitions и upgrade eligibility.
+4. `src/game/environment.js` — terrain, sky, instancing, decorations, campfires и adaptive visual budget.
+5. `src/ai/config.js` — difficulty и boar variants.
+6. `src/ai/boar-brain.js` — states, attacker slots, queue spacing, variant/cap/charge policies.
+7. `src/weapons/config.js` — weapon/ammo definitions.
+8. `src/weapons/geometry.js` — ray/collider geometry.
+9. `src/weapons/combat-rules.js` — weapon state, fire gate, damage, reload, deployable и blast rules.
+10. `src/audio/audio-system.js` — Web Audio.
+11. `src/ui/dom-cache.js` — DOM cache.
+12. `src/ui/hud-model.js` — pure HUD presentation model.
+13. `src/game/runtime.js` — Three.js entities, input, side effects и frame orchestration.
 
-Модули используют `globalThis.ForestHunter` как небольшой namespace. Это позволяет делать последовательный extraction без bundler и сохранять простой static hosting.
+Pure modules expose CommonJS in addition to browser namespace exports, so contract tests can run under Node without a browser.
 
-## Следующие границы
+## Boundaries
 
-- `Boar`, attack queue и movement → `src/ai/`;
-- weapon models, shooting, reloads и deployables → `src/weapons/`;
-- environment/InstancedMesh creation → `src/game/`;
-- HUD, upgrades, menus → `src/ui/`.
+### Boar AI
+
+`boar-brain.js` owns deterministic state policy: attacker capacity, queue movement, charge speed, variant selection and population cap. `Boar` remains in runtime as the Three.js entity/render/animation shell; navigation side effects still use world collision.
+
+### Weapons
+
+`combat-rules.js` owns weapon state, fire gating, deterministic damage modifiers, spread, reload transitions, deployable limits/radii and explosion falloff. `geometry.js` owns ray-vs-cylinder/XZ collision. Mesh creation, raycasts and hit effects remain runtime concerns.
+
+### Environment
+
+`environment.js` owns terrain, sky, grass, hills, dust, instanced trees/bushes/rocks, decorations and campfire animation. Runtime supplies narrow callbacks for collision registration and shootable props.
+
+### Progression / HUD
+
+`progression.js` owns all upgrade definitions and XP-level transitions. `hud-model.js` computes health/XP, weapon statistics, contract/deployable presentation and alive-enemy count; runtime only applies the result to DOM.
 
 ## Verification
 
-`scripts/validate-structure.mjs` проверяет module order и запрещает возврат большого inline runtime.
+`tests/contracts.mjs` runs without WebGL and covers:
 
-CI выполняет JavaScript syntax checks, structural validation и headless Chrome boot smoke. Маркер `data-forest-boot="ready"` устанавливается после инициализации renderer/world и первого вызова `animate()`.
+- boar variant/cap/attacker/queue/charge policies;
+- weapon fire/damage/reload/deployable/blast contracts;
+- ray/collider geometry;
+- XP/level/boss-trigger transitions and upgrade eligibility;
+- HUD calculations.
 
-Полный gameplay, pointer lock, Web Audio, GPU performance и баланс остаются отдельным runtime/manual уровнем.
+`scripts/validate-structure.mjs` fixes module order and prevents extracted subsystem logic from silently returning to runtime.
+
+CI runs syntax → structural validation → gameplay contract tests → headless Chrome/WebGL boot → diff hygiene.
+
+The browser boot proves initialization to `data-forest-boot="ready"`. Pointer lock, Web Audio, real GPU performance, full enemy behavior and gameplay balance remain interactive/manual verification layers.

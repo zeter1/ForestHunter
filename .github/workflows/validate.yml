@@ -6,12 +6,14 @@ on:
     paths:
       - "index.html"
       - "src/**"
+      - "tests/**"
       - "scripts/**"
       - ".github/workflows/validate.yml"
   pull_request:
     paths:
       - "index.html"
       - "src/**"
+      - "tests/**"
       - "scripts/**"
       - ".github/workflows/validate.yml"
   workflow_dispatch:
@@ -41,9 +43,13 @@ jobs:
         run: |
           find src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
           node --check scripts/validate-structure.mjs
+          node --check tests/contracts.mjs
 
       - name: Project structure
         run: node scripts/validate-structure.mjs
+
+      - name: Gameplay contract tests
+        run: node tests/contracts.mjs
 
       - name: Browser boot smoke
         shell: bash

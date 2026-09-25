@@ -14,54 +14,26 @@ if(!ForestHunter?.core||!ForestHunter?.game||!ForestHunter?.ai||!ForestHunter?.w
   throw new Error('Forest Hunter modules were not loaded in the expected order');
 }
 const {readJson,writeJson}=ForestHunter.core;
-const {CFG}=ForestHunter.game;
-const {DIFFICULTIES,BOAR_VARIANTS}=ForestHunter.ai;
-const {WDEFS,AMMO_COLORS,AMMO_NAMES}=ForestHunter.weapons;
+const {CFG,createEnvironmentSystem,createUpgradeCatalog,canOfferUpgrade,upgradeCardCount,advanceXpState}=ForestHunter.game;
+const {DIFFICULTIES,BOAR_VARIANTS,BS,canJoinAttack,queueMovementDecision,chargeSpeed,chooseVariant,boarCap}=ForestHunter.ai;
+const {WDEFS,AMMO_COLORS,AMMO_NAMES,createWeapon,weaponFireGate,computeShotDamage,shotSpread,beginReloadState,finishReloadState,reloadProgress,deployableLimit,deployableTriggerRadius,blastFalloff,rayCircleDistanceXZ}=ForestHunter.weapons;
 const {createAudioSystem}=ForestHunter.audio;
-const {createDomCache}=ForestHunter.ui;
+const {createDomCache,buildPlayerHud,buildWeaponHud,buildContractHud,buildDeployableHud,countAliveBoars}=ForestHunter.ui;
 const SETTINGS = {difficulty:'normal',diff:DIFFICULTIES.normal,quality:'medium',sensitivity:0.002,volume:0.7};
-
-// ===== UPGRADES (18 total, 3 tiers) =====
-const UPGRADES = {
-  t1:[
-    {id:'dmg',    name:'💥 Убойность +20%',    desc:'Урон всего оружия',            tier:1, apply:()=>{ P.dmgMult+=0.2; }},
-    {id:'hp',     name:'❤️ Макс. HP +40',        desc:'Бонус к максимальному HP',     tier:1, apply:()=>{ P.maxHp+=40; P.hp=Math.min(P.hp+40,P.maxHp); }},
-    {id:'spd',    name:'⚡ Скорость +15%',       desc:'Быстрее ходить и бежать',      tier:1, apply:()=>{ P.spdBonus+=CFG.walkSpeed*0.15; }},
-    {id:'reload', name:'🔧 Перезарядка −20%',   desc:'Быстрее перезаряжать',         tier:1, apply:()=>{ P.reloadMult=Math.max(0.15,P.reloadMult-0.2); }},
-    {id:'crit',   name:'🎯 Крит. удар +12%',    desc:'Шанс двойного урона',          tier:1, apply:()=>{ P.critChance=Math.min(0.65,P.critChance+0.12); }},
-    {id:'regen',  name:'🌿 Регенерация +1.5/с', desc:'Автовосстановление HP',        tier:1, apply:()=>{ P.regen+=1.5; }},
-  ],
-  t2:[
-    {id:'vamp',   name:'🧛 Вампиризм',           desc:'Лечение 10 HP за каждый kill', tier:2, apply:()=>{ P.vampHeal+=10; }},
-    {id:'mag',    name:'📦 Двойной магазин',      desc:'+50% к объёму магазинов',      tier:2, apply:()=>{ P.magBonus+=0.5; P.weapons.forEach(w=>{w.magazine=Math.round(w.baseMag*(1+P.magBonus));w.curAmmo=Math.min(w.curAmmo,w.magazine);}); }},
-    {id:'loot',   name:'🎁 Охотничья удача',      desc:'Кабаны роняют больше лута',    tier:2, apply:()=>{ P.lootMult+=0.5; }},
-    {id:'adr',    name:'💊 Адреналин',            desc:'Скорость ×1.5 при HP<30%',     tier:2, apply:()=>{ P.adrenaline=true; }},
-    {id:'armor',  name:'🛡️ Бронежилет',          desc:'Входящий урон −18%',           tier:2, apply:()=>{ P.armor=Math.min(0.72,P.armor+0.18); document.getElementById('armor-text').style.display='block'; }},
-    {id:'instinct',name:'🦅 Охотничий инстинкт', desc:'Скорость+10%, перезарядка−10%',tier:2, apply:()=>{ P.spdBonus+=CFG.walkSpeed*0.1; P.reloadMult=Math.max(0.1,P.reloadMult-0.1); }},
-  ],
-  t3:[
-    {id:'explode',name:'💣 Взрывные пули',       desc:'Урон по площади 2.5м',         tier:3, apply:()=>{ P.explosive=true; }},
-    {id:'berserk',name:'⚔️ Берсерк',             desc:'Урон+40% при HP<50%',          tier:3, apply:()=>{ P.berserker=true; }},
-    {id:'radar',  name:'📡 Охотничий нюх',       desc:'Видите кабанов сквозь стены',  tier:3, apply:()=>{ P.radar=true; activateRadar(); }},
-    {id:'last',   name:'⚡ Второй шанс',         desc:'Один раз воскреснуть с 40% HP',tier:3, apply:()=>{ P.lastStand=true; }},
-    {id:'death',  name:'☠️ Смертельный выстрел', desc:'Каждый 5й выстрел — тройной урон',tier:3, apply:()=>{ P.deadlyShot=true; }},
-    {id:'multi',  name:'🔱 Рикошет',             desc:'15% шанс тройного выстрела',   tier:3, apply:()=>{ P.multiShot=Math.min(0.6,P.multiShot+0.15); }},
-  ]
-};
 
 // ===== GLOBALS =====
 let scene, camera, renderer, clock;
 let playerObj;
 let gameStarted=false, gamePaused=false, gameOver=false;
 let keys={}, shooting=false, shootOnce=false;
-let boars=[], pickups=[], trees=[], campfires=[], structureBoxes=[];
+let boars=[], pickups=[], structureBoxes=[];
 let upgradeQueue=0;
 let bossActive=false, bossBoar=null, bossSpawnPending=false;
 let jumpQueued=false, spawnTimer=0, lastHeadshotShot=-1;
 let contract=null, lastContractId='', contractSerial=0;
 let shootableProps=[], _propMeshes=[], deployables=[];
 let upgradeCountdownToken=0, upgradeChoiceArmed=false;
-let sunLight=null, skyDome=null, sunDisc=null, grassMesh=null, dustField=null, distantHills=null;
+let sunLight=null, environment=null;
 let deathCinematic=null, lastPointerUnlockAt=-Infinity;
 let viewBobTime=0, viewBobX=0, viewBobY=0, weaponSwayX=0, weaponSwayY=0;
 const VISUAL_MAX={grass:440,dust:280};
@@ -147,6 +119,13 @@ const P = {
   levelStreak:0, // consecutive levels (for boss trigger)
   damageGrace:0, lastDamageSource:null,
 };
+
+const UPGRADES=createUpgradeCatalog({
+  getPlayer:()=>P,
+  getConfig:()=>CFG,
+  onRadar:()=>activateRadar(),
+  onArmorEnabled:()=>{const el=document.getElementById('armor-text');if(el)el.style.display='block';}
+});
 
 // ===== AUDIO =====
 const audio=createAudioSystem(()=>SETTINGS.volume);
@@ -307,20 +286,7 @@ const FX = {
 };
 
 // ===== WEAPON CLASS =====
-class Weapon{
-  constructor(def){
-    Object.assign(this,def);
-    this.curAmmo=def.mag; this.baseMag=def.mag;
-    this.magazine=def.mag; // current (buffed) mag size
-    this.totalAmmo=def.ammo;
-    this.lastShot=0;
-    this.reloading=false;
-    this.reloadLeft=0;
-    this.reloadDuration=0;
-    this.model=null;
-  }
-}
-function mkWeapon(type){ return new Weapon(WDEFS[type]); }
+function mkWeapon(type){ return createWeapon(WDEFS[type]); }
 
 // ===== WEAPON MODELS =====
 function _buildWModel(type){
@@ -423,13 +389,8 @@ function initWeapons(){
 }
 
 // ===== BOAR AI STATES =====
-const BS = {IDLE:0, PATROL:1, ALERT:2, CHASE:3, CHARGE:4, ATTACK:5};
-const ACTIVE_ATTACK_STATES = new Set([BS.CHARGE, BS.ATTACK]);
-function canBoarAttack(boar,pp){
-  const active=boars
-    .filter(b=>b!==boar&&!b.dead&&!b.dying&&!b.removed&&ACTIVE_ATTACK_STATES.has(b.state))
-    .sort((a,b)=>a.mesh.position.distanceToSquared(pp)-b.mesh.position.distanceToSquared(pp));
-  return active.length<Math.max(1,CFG.maxAttackers+SETTINGS.diff.attackerBonus);
+function canBoarAttack(boar){
+  return canJoinAttack(boars,boar,CFG.maxAttackers,SETTINGS.diff.attackerBonus);
 }
 function moveBoarSafely(boar,dir,distance){
   if(distance<=0||dir.lengthSq()<0.0001)return false;
@@ -466,29 +427,22 @@ function separateBoars(boar){
   }
 }
 function keepBoarAtAttackQueueDistance(boar,pp,dt){
-  const toP=new THREE.Vector3().subVectors(pp,boar.mesh.position); toP.y=0;
-  const len=toP.length();
+  const dx=pp.x-boar.mesh.position.x,dz=pp.z-boar.mesh.position.z;
+  const len=Math.hypot(dx,dz);
   if(len<0.01)return 0;
-  toP.normalize();
-  boar.mesh.rotation.y=Math.atan2(toP.x,toP.z);
-  const holdDist=boar.attackRange+boar.queueHoldDist;
-  if(len>holdDist){
-    const speed=boar.speed*0.52;
-    return moveBoarSafely(boar,toP,speed*dt)?speed:0;
-  }
-  if(len<holdDist-1.2){
-    const speed=boar.speed*0.35;
-    toP.multiplyScalar(-1);
-    return moveBoarSafely(boar,toP,speed*dt)?speed:0;
-  }
-  return 0;
+  const dir=new THREE.Vector3(dx/len,0,dz/len);
+  boar.mesh.rotation.y=Math.atan2(dir.x,dir.z);
+  const decision=queueMovementDecision(len,boar.attackRange,boar.queueHoldDist,boar.speed);
+  if(decision.direction===0)return 0;
+  if(decision.direction<0)dir.multiplyScalar(-1);
+  return moveBoarSafely(boar,dir,decision.speed*dt)?decision.speed:0;
 }
 
 // ===== BOAR CLASS =====
 class Boar{
   constructor(pos, lm=1, isBoss=false, variantKey=null){
     this.lm=lm; this.isBoss=isBoss;
-    this.variantKey=isBoss?'boss':(variantKey||chooseBoarVariant());
+    this.variantKey=isBoss?'boss':(variantKey||chooseVariant(P.level,Math.random()));
     this.variant=isBoss?null:BOAR_VARIANTS[this.variantKey];
     this.lastHitMeta={};
     this.dead=false; this.dying=false; this.removed=false;
@@ -728,7 +682,7 @@ class Boar{
           moveSpeed=0;
           break;
         }
-        const chSpd=Math.min(this.speed*3.2,this.variantKey==='runner'?24:28);
+        const chSpd=chargeSpeed(this.speed,this.variantKey);
         if(moveBoarSafely(this,this.chargeDir,chSpd*dt))moveSpeed=chSpd;
         else {this.state=BS.CHASE;this.chargeT=0;this.chargeCooldown=Math.max(this.chargeCooldown,1.2);}
         if(dist<this.attackRange){
@@ -854,15 +808,6 @@ class Boar{
       updateHUD();
     },this.isBoss?8000:5000);
   }
-}
-
-// ===== ENEMY VARIANTS =====
-function chooseBoarVariant(){
-  const r=Math.random();
-  if(P.level>=5&&r<0.13)return 'rabid';
-  if(P.level>=3&&r<0.31)return 'armored';
-  if(P.level>=2&&r<0.56)return 'runner';
-  return 'normal';
 }
 
 // ===== BOSS SPAWN =====
@@ -1009,319 +954,13 @@ function applyPickup(p){
   updateHUD();
 }
 
-// ===== WORLD =====
-function createWorld(){
-  // Low-poly terrain with vertex color variation: more depth without textures or network assets.
-  const geo=new THREE.PlaneGeometry(CFG.worldSize,CFG.worldSize,28,28);
-  const pos=geo.attributes.position;
-  const colors=[];
-  const cDark=new THREE.Color(0x28470f),cMid=new THREE.Color(0x426b18),cDry=new THREE.Color(0x6d6a22);
-  for(let i=0;i<pos.count;i++){
-    const x=pos.getX(i),y=pos.getY(i);
-    const h=Math.sin(x*0.055)*Math.cos(y*0.055)*0.7+Math.sin(x*0.12+y*0.08)*0.25+Math.sin((x-y)*.025)*.16;
-    pos.setZ(i,h);
-    const moisture=(Math.sin(x*.041)+Math.cos(y*.037)+2)/4;
-    const col=cDark.clone().lerp(cMid,.35+moisture*.55).lerp(cDry,Math.max(0,h-.45)*.28);
-    colors.push(col.r,col.g,col.b);
-  }
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-  geo.computeVertexNormals();
-  const groundMat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.97,metalness:0});
-  const ground=new THREE.Mesh(geo,groundMat);
-  ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
-
-  // Irregular dirt clearings. They remain cheap flat meshes and help navigation.
-  const dirtMats=[0x6a511c,0x80672b,0x57451d].map(c=>new THREE.MeshStandardMaterial({color:c,roughness:1,transparent:true,opacity:.54,depthWrite:false}));
-  for(let i=0;i<13;i++){
-    const dp=new THREE.Mesh(new THREE.CircleGeometry(4+Math.random()*5,14),dirtMats[i%dirtMats.length]);
-    dp.rotation.x=-Math.PI/2;dp.scale.set(1.4+Math.random(),.75+Math.random()*.55,1);
-    dp.position.set((Math.random()-.5)*300,0.018,(Math.random()-.5)*300);dp.rotation.z=Math.random()*Math.PI;
-    scene.add(dp);
-  }
-
-  createTreesInstanced(CFG.treeCount);
-  createBushesInstanced(90);
-  createRocksInstanced(30);
-  createGrassInstanced();
-  createDistantHills();
-  createDecorations();
-}
-
-function createSkyEnvironment(){
-  const geo=new THREE.SphereGeometry(430,28,16);
-  const mat=new THREE.ShaderMaterial({
-    side:THREE.BackSide,depthWrite:false,fog:false,
-    uniforms:{top:{value:new THREE.Color(0x477fb2)},horizon:{value:new THREE.Color(0xc4d6d0)},bottom:{value:new THREE.Color(0x8ca87b)},sunDir:{value:new THREE.Vector3(.55,.72,.38).normalize()}},
-    vertexShader:'varying vec3 vPos; void main(){vPos=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-    fragmentShader:'uniform vec3 top;uniform vec3 horizon;uniform vec3 bottom;uniform vec3 sunDir;varying vec3 vPos;void main(){vec3 n=normalize(vPos);float h=clamp(n.y*.5+.5,0.0,1.0);vec3 col=mix(bottom,horizon,smoothstep(.05,.48,h));col=mix(col,top,smoothstep(.42,.92,h));float sun=pow(max(dot(n,sunDir),0.0),420.0);col+=vec3(1.0,.72,.34)*sun*1.45;gl_FragColor=vec4(col,1.0);}'
-  });
-  skyDome=new THREE.Mesh(geo,mat);scene.add(skyDome);
-  sunDisc=new THREE.Mesh(new THREE.SphereGeometry(7,12,8),new THREE.MeshBasicMaterial({color:0xffe5a3,fog:false}));
-  sunDisc.position.set(235,305,160);scene.add(sunDisc);
-  createDustField();
-}
-function createGrassInstanced(){
-  const geo=new THREE.ConeGeometry(.105,.72,3);geo.translate(0,.36,0);
-  grassMesh=new THREE.InstancedMesh(geo,new THREE.MeshLambertMaterial({color:0x4b741d,side:THREE.DoubleSide}),VISUAL_MAX.grass);
-  const dummy=new THREE.Object3D();let placed=0;
-  for(let a=0;a<VISUAL_MAX.grass*4&&placed<VISUAL_MAX.grass;a++){
-    const x=(Math.random()-.5)*CFG.worldSize*.92,z=(Math.random()-.5)*CFG.worldSize*.92;
-    if(Math.abs(x)<10&&Math.abs(z)<10)continue;
-    if(isBlocked(new THREE.Vector3(x,0,z),.08))continue;
-    const s=.45+Math.random()*.8;dummy.position.set(x,.01,z);dummy.scale.set(s,.55+Math.random()*.85,s);dummy.rotation.y=Math.random()*Math.PI*2;dummy.updateMatrix();grassMesh.setMatrixAt(placed++,dummy.matrix);
-  }
-  grassMesh.instanceMatrix.needsUpdate=true;grassMesh.castShadow=false;grassMesh.receiveShadow=false;scene.add(grassMesh);
-}
-function createDistantHills(){
-  const count=30,geo=new THREE.ConeGeometry(18,34,7),mat=new THREE.MeshLambertMaterial({color:0x31512a,flatShading:true});
-  distantHills=new THREE.InstancedMesh(geo,mat,count);const dummy=new THREE.Object3D();
-  for(let i=0;i<count;i++){
-    const a=i/count*Math.PI*2+(Math.random()-.5)*.13,r=225+Math.random()*36,s=.65+Math.random()*.9;
-    dummy.position.set(Math.cos(a)*r,2+Math.random()*4,Math.sin(a)*r);dummy.scale.set(s,.65+Math.random()*.8,s);dummy.rotation.y=Math.random()*Math.PI;dummy.updateMatrix();distantHills.setMatrixAt(i,dummy.matrix);
-  }
-  distantHills.instanceMatrix.needsUpdate=true;scene.add(distantHills);
-}
-function createDustField(){
-  const arr=new Float32Array(VISUAL_MAX.dust*3);
-  for(let i=0;i<VISUAL_MAX.dust;i++){arr[i*3]=(Math.random()-.5)*260;arr[i*3+1]=.5+Math.random()*13;arr[i*3+2]=(Math.random()-.5)*260;}
-  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(arr,3));
-  dustField=new THREE.Points(geo,new THREE.PointsMaterial({color:0xffe9bd,size:.07,transparent:true,opacity:.36,depthWrite:false,blending:THREE.AdditiveBlending}));
-  scene.add(dustField);
-}
-function updateEnvironmentVisuals(dt){
-  if(dustField&&dustField.visible){dustField.rotation.y+=dt*.003;dustField.position.x=playerObj.position.x*.08;dustField.position.z=playerObj.position.z*.08;}
-  if(skyDome){skyDome.position.x=playerObj.position.x*.12;skyDome.position.z=playerObj.position.z*.12;}
-  if(sunLight){
-    sunLight.position.set(playerObj.position.x+80,140,playerObj.position.z+60);
-    sunLight.target.position.set(playerObj.position.x,0,playerObj.position.z);
-    sunLight.target.updateMatrixWorld();
-  }
-}
-
-// ===== INSTANCED TREES (9 draw calls for 160 trees) =====
-function createTreesInstanced(count){
-  const normCount=Math.round(count*0.75);
-  const pineCount=count-normCount;
-
-  const imNT=new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22,0.4,3.2,7),new THREE.MeshLambertMaterial({color:0x4a3728}),normCount);
-  const imNL1=new THREE.InstancedMesh(new THREE.ConeGeometry(1.7,2.5,7),new THREE.MeshLambertMaterial({color:0x2a7a25}),normCount);
-  const imNL2=new THREE.InstancedMesh(new THREE.ConeGeometry(1.3,2.5,7),new THREE.MeshLambertMaterial({color:0x257520}),normCount);
-  const imNL3=new THREE.InstancedMesh(new THREE.ConeGeometry(0.9,2.5,7),new THREE.MeshLambertMaterial({color:0x1e6018}),normCount);
-  const imPT=new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16,0.28,4,6), new THREE.MeshLambertMaterial({color:0x5a4030}),pineCount);
-  const imPL1=new THREE.InstancedMesh(new THREE.ConeGeometry(0.9,2,6), new THREE.MeshLambertMaterial({color:0x155a15}),pineCount);
-  const imPL2=new THREE.InstancedMesh(new THREE.ConeGeometry(1.5,2,6), new THREE.MeshLambertMaterial({color:0x115511}),pineCount);
-  const imPL3=new THREE.InstancedMesh(new THREE.ConeGeometry(1.1,2,6), new THREE.MeshLambertMaterial({color:0x0d4a0d}),pineCount);
-  const imPL4=new THREE.InstancedMesh(new THREE.ConeGeometry(0.7,2,6), new THREE.MeshLambertMaterial({color:0x0a3d0a}),pineCount);
-
-  const dummy=new THREE.Object3D();
-  const setM=(im,idx,x,y,z,s,ry)=>{
-    dummy.position.set(x,y,z); dummy.scale.set(s,s,s);
-    dummy.rotation.set(0,ry,0); dummy.updateMatrix();
-    im.setMatrixAt(idx,dummy.matrix);
-  };
-
-  let ni=0,pi=0;
-  for(let att=0;att<count*6&&(ni<normCount||pi<pineCount);att++){
-    const x=(Math.random()-.5)*CFG.worldSize*0.92;
-    const z=(Math.random()-.5)*CFG.worldSize*0.92;
-    if(Math.abs(x)<14&&Math.abs(z)<14)continue;
-    const s=0.82+Math.random()*0.55, ry=Math.random()*Math.PI*2;
-    const doNorm=ni<normCount&&(pi>=pineCount||Math.random()<0.75);
-    if(doNorm){
-      setM(imNT,ni,x,1.6*s,z,s,ry); setM(imNL1,ni,x,3.1*s,z,s,ry);
-      setM(imNL2,ni,x,4.4*s,z,s,ry); setM(imNL3,ni,x,5.3*s,z,s,ry);
-      _regTree(x,z); ni++;
-    } else if(pi<pineCount){
-      setM(imPT,pi,x,2*s,z,s,ry);   setM(imPL1,pi,x,2.5*s,z,s,ry);
-      setM(imPL2,pi,x,3.5*s,z,s,ry);setM(imPL3,pi,x,4.8*s,z,s,ry);
-      setM(imPL4,pi,x,5.8*s,z,s,ry);_regTree(x,z); pi++;
-    }
-  }
-  [imNT,imNL1,imNL2,imNL3,imPT,imPL1,imPL2,imPL3,imPL4].forEach(im=>{
-    im.instanceMatrix.needsUpdate=true;
-    im.castShadow=false; im.receiveShadow=false;
-    scene.add(im);
-  });
-}
-
-// ===== INSTANCED BUSHES (3 draw calls for 90 bushes) =====
-function createBushesInstanced(count){
-  const perTier=Math.ceil(count/3);
-  const tiers=[
-    {s:0.4, col:0x256610},{s:0.58,col:0x1e5c0a},{s:0.75,col:0x2d7a10}
-  ].map(t=>({
-    ...t,
-    im:new THREE.InstancedMesh(
-      new THREE.SphereGeometry(t.s,5,4),
-      new THREE.MeshBasicMaterial({color:t.col}),
-      perTier
-    ),
-    idx:0
-  }));
-  const dummy=new THREE.Object3D();
-  for(let att=0;att<count*5;att++){
-    if(tiers.every(t=>t.idx>=perTier))break;
-    const x=(Math.random()-.5)*CFG.worldSize*0.9, z=(Math.random()-.5)*CFG.worldSize*0.9;
-    if(Math.abs(x)<10&&Math.abs(z)<10)continue;
-    const t=tiers[Math.floor(Math.random()*3)];
-    if(t.idx>=perTier)continue;
-    dummy.position.set(x,t.s*0.55,z);
-    dummy.scale.set(1+Math.random()*0.4, 0.55+Math.random()*0.3, 1+Math.random()*0.4);
-    dummy.rotation.y=Math.random()*Math.PI*2; dummy.updateMatrix();
-    t.im.setMatrixAt(t.idx++,dummy.matrix);
-  }
-  tiers.forEach(t=>{
-    t.im.instanceMatrix.needsUpdate=true;
-    t.im.castShadow=false; scene.add(t.im);
-  });
-}
-
-// ===== INSTANCED ROCKS (1 draw call for 30 rocks) =====
-function createRocksInstanced(count){
-  const im=new THREE.InstancedMesh(
-    new THREE.DodecahedronGeometry(0.5,0),
-    new THREE.MeshBasicMaterial({color:0x888880}),
-    count
-  );
-  const dummy=new THREE.Object3D();
-  let placed=0;
-  for(let att=0;att<count*5&&placed<count;att++){
-    const x=(Math.random()-.5)*CFG.worldSize*0.9, z=(Math.random()-.5)*CFG.worldSize*0.9;
-    const s=0.3+Math.random()*0.8;
-    dummy.position.set(x,s*0.35,z);
-    dummy.scale.set(s,s*0.7,s);
-    dummy.rotation.set(Math.random()*2,Math.random()*2,Math.random()*2);
-    dummy.updateMatrix(); im.setMatrixAt(placed++,dummy.matrix);
-  }
-  im.instanceMatrix.needsUpdate=true; im.castShadow=false; scene.add(im);
-}
-
-function createDecorations(){
-  // Tents
-  [[45,30],[-38,55],[72,-42],[-62,-28],[22,-72],[80,18],[-80,60],[58,-82]].forEach(([x,z])=>mkTent(x,z));
-  // Gazebos
-  [[-52,42],[63,32],[-32,-62],[72,-72]].forEach(([x,z])=>mkGazebo(x,z));
-  // Campfires — only 4 (each has a PointLight, expensive)
-  [[44,28],[-36,52],[70,-44],[-64,-32]].forEach(([x,z])=>mkCampfire(x,z));
-  // Barrels
-  for(let i=0;i<28;i++){
-    const x=(Math.random()-.5)*280, z=(Math.random()-.5)*280;
-    if(Math.abs(x)<12&&Math.abs(z)<12)continue;
-    mkBarrel(x,z);
-  }
-  // Benches
-  for(let i=0;i<10;i++){
-    const x=(Math.random()-.5)*250,z=(Math.random()-.5)*250;
-    if(Math.abs(x)<12&&Math.abs(z)<12)continue;
-    mkBench(x,z,Math.random()*Math.PI*2);
-  }
-  // Crates
-  for(let i=0;i<22;i++){
-    const x=(Math.random()-.5)*280,z=(Math.random()-.5)*280;
-    if(Math.abs(x)<12&&Math.abs(z)<12)continue;
-    mkCrate(x,z);
-  }
-}
-
-function mkTent(x,z){
-  const g=new THREE.Group();
-  const fabric=new THREE.MeshLambertMaterial({color:0x8B7355,side:THREE.DoubleSide});
-  const dark=new THREE.MeshLambertMaterial({color:0x2a1f0e,side:THREE.DoubleSide});
-  const pole=new THREE.MeshLambertMaterial({color:0x5c3a1e});
-  const body=new THREE.Mesh(new THREE.ConeGeometry(2.6,2.4,4),fabric); body.position.y=1.2; body.rotation.y=Math.PI/4; g.add(body);
-  const door=new THREE.Mesh(new THREE.PlaneGeometry(1.1,1.35),dark); door.position.set(0,0.67,1.84); door.rotation.y=0; g.add(door);
-  const cp=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,2.6),new THREE.MeshLambertMaterial({color:0x5c3a1e})); cp.position.y=1.3; g.add(cp);
-  for(let i=0;i<4;i++){const a=(i/4)*Math.PI*2+Math.PI/4;const pg=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.01,0.28),new THREE.MeshLambertMaterial({color:0x444444}));pg.position.set(Math.cos(a)*2.4,0.14,Math.sin(a)*2.4);pg.rotation.z=0.25;g.add(pg);}
-  g.position.set(x,0,z); g.rotation.y=Math.random()*Math.PI*2; scene.add(g);
-  structureBoxes.push({x,z,r:3,h:4.2});
-}
-
-function mkGazebo(x,z){
-  const g=new THREE.Group();
-  const wood=new THREE.MeshLambertMaterial({color:0x6B4423});
-  const roof=new THREE.MeshLambertMaterial({color:0x3d2010,side:THREE.DoubleSide});
-  for(let i=0;i<6;i++){const a=(i/6)*Math.PI*2;const p=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.12,3.2),wood);p.position.set(Math.cos(a)*2.3,1.6,Math.sin(a)*2.3);g.add(p);}
-  const rc=new THREE.Mesh(new THREE.ConeGeometry(2.9,1.6,6),roof); rc.position.y=4; g.add(rc);
-  const rim=new THREE.Mesh(new THREE.TorusGeometry(2.5,0.07,4,6),wood); rim.position.y=3.2; rim.rotation.x=Math.PI/2; g.add(rim);
-  const fl=new THREE.Mesh(new THREE.CylinderGeometry(2.45,2.45,0.1,6),wood); fl.position.y=0.05; g.add(fl);
-  // Benches inside
-  for(let i=0;i<4;i++){
-    const a=(i/4)*Math.PI*2+Math.PI/4;
-    const b=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.08,0.34),wood); b.position.set(Math.cos(a)*1.55,0.44,Math.sin(a)*1.55); b.rotation.y=a; g.add(b);
-  }
-  g.position.set(x,0,z); g.rotation.y=Math.random()*Math.PI/3; scene.add(g);
-  structureBoxes.push({x,z,r:3.2,h:4.8});
-}
-
-function mkCampfire(x,z){
-  const g=new THREE.Group();
-  const stone=new THREE.MeshLambertMaterial({color:0x666666});
-  const logM=new THREE.MeshLambertMaterial({color:0x4a3728});
-  for(let i=0;i<8;i++){const a=(i/8)*Math.PI*2;const s=new THREE.Mesh(new THREE.DodecahedronGeometry(0.18+Math.random()*0.08),stone);s.position.set(Math.cos(a)*0.46,0.1,Math.sin(a)*0.46);s.rotation.set(Math.random(),Math.random(),Math.random());g.add(s);}
-  for(let i=0;i<4;i++){const a=(i/4)*Math.PI*2;const l=new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.075,0.82),logM);l.rotation.z=Math.PI/2;l.position.set(Math.cos(a)*0.14,0.075,Math.sin(a)*0.14);l.rotation.y=a;g.add(l);}
-  const f1=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.52,6),new THREE.MeshBasicMaterial({color:0xff6600,transparent:true,opacity:0.85})); f1.position.y=0.36; g.add(f1);
-  const f2=new THREE.Mesh(new THREE.ConeGeometry(0.1,0.36,5),new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.75})); f2.position.y=0.46; g.add(f2);
-  const fl=new THREE.PointLight(0xff7700,2.0,10); fl.position.y=0.55; g.add(fl);
-  g.userData={fireLight:fl,flame:f1,flame2:f2};
-  g.position.set(x,0,z); scene.add(g); campfires.push(g);
-}
-
-function mkBarrel(x,z){
-  const g=new THREE.Group();
-  const isRed=Math.random()<0.28;
-  const bm=new THREE.MeshLambertMaterial({color:isRed?0xaa3333:0x7a5020});
-  const mm=new THREE.MeshLambertMaterial({color:0x555555});
-  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.3,0.76,12),bm); body.position.y=0.38; g.add(body);
-  [0.19,0.56].forEach(y=>{const b=new THREE.Mesh(new THREE.TorusGeometry(0.33,0.025,4,12),mm);b.rotation.x=Math.PI/2;b.position.y=y;g.add(b);});
-  const lid=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.05,12),mm); lid.position.y=0.78; g.add(lid);
-  if(Math.random()<0.28){g.rotation.z=Math.PI/2;g.position.y=0.32;}
-  g.position.set(x,0,z); g.rotation.y=Math.random()*Math.PI*2; scene.add(g);
-  if(isRed){
-    const prop={mesh:g,hp:95,maxHp:95,exploded:false,position:new THREE.Vector3(x,0.45,z)};
-    g.traverse(o=>{if(o.isMesh){o.userData.prop=prop;_propMeshes.push(o);}});
-    shootableProps.push(prop);
-  }
-}
-
-function mkBench(x,z,ang){
-  const g=new THREE.Group();
-  const wm=new THREE.MeshLambertMaterial({color:0x9B6B14});
-  const lm=new THREE.MeshLambertMaterial({color:0x6a4500});
-  const seat=new THREE.Mesh(new THREE.BoxGeometry(2.1,0.09,0.46),wm); seat.position.y=0.48; g.add(seat);
-  const back=new THREE.Mesh(new THREE.BoxGeometry(2.1,0.52,0.07),wm); back.position.set(0,0.77,-0.2); g.add(back);
-  [-0.85,0.85].forEach(px=>{
-    const lg=new THREE.Group(); lg.position.x=px;
-    [-0.17,0.17].forEach(pz=>{const l=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.5,0.07),lm);l.position.set(0,0.25,pz);lg.add(l);});
-    g.add(lg);
-  });
-  g.position.set(x,0,z); g.rotation.y=ang; scene.add(g);
-}
-
-function mkCrate(x,z){
-  const g=new THREE.Group();
-  const wm=new THREE.MeshLambertMaterial({color:0x9B7B3E});
-  const mm=new THREE.MeshLambertMaterial({color:0x8a8a8a});
-  const sz=0.5+Math.random()*0.35;
-  const c=new THREE.Mesh(new THREE.BoxGeometry(sz,sz,sz),wm); c.position.y=sz/2; g.add(c);
-  // Metal edges
-  ['x','z'].forEach(axis=>{
-    for(let side of[-0.5,0.5]){
-      const e=new THREE.Mesh(new THREE.BoxGeometry(axis==='x'?0.02:sz+0.02,sz*0.1,axis==='z'?0.02:sz+0.02),mm);
-      e.position.set(axis==='x'?side*(sz/2+0.01):0,sz/2,axis==='z'?side*(sz/2+0.01):0);
-      g.add(e);
-    }
-  });
-  g.position.set(x,0,z); g.rotation.y=Math.random()*Math.PI/2; scene.add(g);
-}
-
 // ===== SHOOTING =====
 function shoot(){
   const w=P.weapons[P.curWeapon];
-  if(!w||w.reloading)return;
-  if(!w.auto&&!shootOnce)return;
   const now=performance.now();
-  if(now-w.lastShot<1000/w.rof)return;
-  if(w.curAmmo<=0){shootOnce=false;snd('empty');if(w.totalAmmo>0)startReload(w,true);return;}
+  const fireGate=weaponFireGate(w,{shootOnce,now});
+  if(fireGate==='blocked')return;
+  if(fireGate==='empty'){shootOnce=false;snd('empty');if(w&&w.totalAmmo>0)startReload(w,true);return;}
 
   // Traps and mines are placed in front of the player instead of firing a ray.
   if(w.deployable){
@@ -1344,13 +983,17 @@ function shoot(){
   camera.rotation.x=Math.min(Math.PI/2-0.01,camera.rotation.x+recoilAmt);
 
   P.shotCount++;
-  let dmg=w.dmg*P.dmgMult;
-  if(P.berserker&&P.hp<P.maxHp*0.5)dmg*=1.4;
-  if(P.deadlyShot&&P.shotCount%5===0){dmg*=3;showMsg('☠ СМЕРТЕЛЬНЫЙ ВЫСТРЕЛ!',700);}
-  let isCrit=false;
-  if(Math.random()<P.critChance){dmg*=2;isCrit=true;}
+  const damageState=computeShotDamage({
+    baseDamage:w.dmg,dmgMult:P.dmgMult,
+    berserker:P.berserker,hp:P.hp,maxHp:P.maxHp,
+    deadlyShot:P.deadlyShot,shotCount:P.shotCount,
+    critChance:P.critChance,critRoll:Math.random()
+  });
+  let dmg=damageState.damage;
+  const isCrit=damageState.critical;
+  if(damageState.deadly)showMsg('☠ СМЕРТЕЛЬНЫЙ ВЫСТРЕЛ!',700);
 
-  const spread=P.aiming?w.spread*0.22:w.spread;
+  const spread=shotSpread(w.spread,P.aiming);
   // Shooting happens before renderer.render(), so refresh transforms explicitly.
   playerObj.updateMatrixWorld(true);camera.updateMatrixWorld(true);
   const rc=_shootRay;rc.setFromCamera(_screenCenter,camera);
@@ -1491,7 +1134,7 @@ function explode(pos,radius=2.5,baseDmg=80){
   boars.forEach(b=>{
     if(!b.dead&&!b.dying&&!b.removed){
       const d=b.mesh.position.distanceTo(pos);
-      if(d<radius){b.takeDmg((baseDmg*(1-d/radius))*P.dmgMult,pos);}
+      if(d<radius){b.takeDmg(blastFalloff(baseDmg,d,radius)*P.dmgMult,pos);}
     }
   });
   FX.explosion(pos);
@@ -1506,20 +1149,12 @@ function updateReloadBar(w){
     DOM.reloadFill.style.width='0%';
     return;
   }
-  const pct=w.reloadDuration>0?Math.max(0,Math.min(100,(1-w.reloadLeft/w.reloadDuration)*100)):0;
+  const pct=reloadProgress(w);
   DOM.reloadWrap.style.display='flex';
   DOM.reloadFill.style.transition='none';
   DOM.reloadFill.style.width=pct+'%';
 }
-function finishReload(w){
-  const need=w.magazine-w.curAmmo;
-  const take=Math.min(need,w.totalAmmo);
-  w.curAmmo+=take;
-  w.totalAmmo-=take;
-  w.reloading=false;
-  w.reloadLeft=0;
-  w.reloadDuration=0;
-}
+function finishReload(w){finishReloadState(w);}
 function updateReloads(dt){
   let changed=false;
   P.weapons.forEach(w=>{
@@ -1532,8 +1167,7 @@ function updateReloads(dt){
   if(changed)updateHUD();
 }
 function startReload(w,automatic=false){
-  if(!w||w.reloading||w.curAmmo===w.magazine||w.totalAmmo<=0)return false;
-  w.reloading=true;w.reloadDuration=Math.max(0.05,w.reload*P.reloadMult);w.reloadLeft=w.reloadDuration;
+  if(!beginReloadState(w,P.reloadMult))return false;
   if(automatic&&w===P.weapons[P.curWeapon])addFeed('🔄 Автоматическая перезарядка',900);
   updateReloadBar(P.weapons[P.curWeapon]);updateHUD();return true;
 }
@@ -1564,7 +1198,7 @@ function removeDeployable(d){
   if(!d||d.removed)return;d.removed=true;scene.remove(d.mesh);disposeObject3D(d.mesh,true);deployables=deployables.filter(x=>x!==d);updateHUD();
 }
 function placeDeployable(type){
-  const max=type==='trap'?CFG.maxTraps:CFG.maxMines;
+  const max=deployableLimit(type,CFG);
   if(countDeployables(type)>=max){showMsg(type==='trap'?'⚠ Уже установлено максимум капканов':'⚠ Уже установлено максимум мин',1500);return false;}
   const forward=new THREE.Vector3();camera.getWorldDirection(forward);forward.y=0;if(forward.lengthSq()<.01)forward.set(0,0,-1);forward.normalize();
   const pos=playerObj.position.clone().addScaledVector(forward,2.35);pos.y=.02;
@@ -1580,7 +1214,7 @@ function triggerDeployable(d,boar){
     FX.impact(d.mesh.position,true);showHitMarker(false);addFeed(`🪤 ${boar.isBoss?'Босс':'Кабан'} пойман в капкан`);setTimeout(()=>removeDeployable(d),250);
   }else{
     const pos=d.mesh.position.clone();removeDeployable(d);FX.explosion(pos);snd('bazooka');
-    boars.forEach(b=>{if(b.dead||b.dying||b.removed)return;const dist=b.mesh.position.distanceTo(pos);if(dist<WDEFS.mine.blastRadius)b.takeDmg(WDEFS.mine.dmg*(1-dist/WDEFS.mine.blastRadius)*P.dmgMult,pos,{weaponType:'mine'});});
+    boars.forEach(b=>{if(b.dead||b.dying||b.removed)return;const dist=b.mesh.position.distanceTo(pos);if(dist<WDEFS.mine.blastRadius)b.takeDmg(blastFalloff(WDEFS.mine.dmg,dist,WDEFS.mine.blastRadius)*P.dmgMult,pos,{weaponType:'mine'});});
     addFeed('💥 Мина сработала');
   }
 }
@@ -1590,7 +1224,7 @@ function updateDeployables(dt){
     if(d.type==='mine'){const lamp=d.mesh.children.find(c=>c.userData.indicator);if(lamp)lamp.visible=d.age<d.armTime?Math.floor(d.age*8)%2===0:true;}
     if(d.age>CFG.deployableLifetime){removeDeployable(d);continue;}
     if(d.age<d.armTime||d.triggered)continue;
-    const radius=d.type==='trap'?1.35:1.65;
+    const radius=deployableTriggerRadius(d.type);
     let target=null,best=radius*radius;
     for(const b of boars){if(b.dead||b.dying||b.removed)continue;const ds=b.mesh.position.distanceToSquared(d.mesh.position);if(ds<best){best=ds;target=b;}}
     if(target)triggerDeployable(d,target);
@@ -1632,23 +1266,6 @@ function findSafeSpawn(center,minDist,maxDist,attempts=24){
     return p;
   }
   return new THREE.Vector3(Math.max(-lim,Math.min(lim,center.x+minDist)),0,Math.max(-lim,Math.min(lim,center.z)));
-}
-function rayCircleDistanceXZ(ray,c,r,maxDist,height){
-  const ox=ray.origin.x-c.x,oz=ray.origin.z-c.z;
-  const dx=ray.direction.x,dz=ray.direction.z;
-  const a=dx*dx+dz*dz;
-  if(a<1e-8)return null;
-  const b=2*(ox*dx+oz*dz);
-  const cc=ox*ox+oz*oz-r*r;
-  const disc=b*b-4*a*cc;
-  if(disc<0)return null;
-  const root=Math.sqrt(disc);
-  let t=(-b-root)/(2*a);
-  if(t<0)t=(-b+root)/(2*a);
-  if(t<0||t>maxDist)return null;
-  const y=ray.origin.y+ray.direction.y*t;
-  if(y<0.02||y>height)return null;
-  return t;
 }
 function firstObstacleHit(ray,maxDist){
   let best=maxDist+1,bestKind='none';
@@ -1844,17 +1461,13 @@ function updateViewMotion(dt){
   weaponSwayX*=Math.max(0,1-dt*8);weaponSwayY*=Math.max(0,1-dt*8);
 }
 
-function getBoarCap(){
-  // Мягкая кривая сложности: мало врагов на старте, затем +1 лимит каждые 2 уровня.
-  return Math.max(2,Math.min(CFG.maxBoars+2, CFG.startBoars + Math.floor((P.level-1)/2) + SETTINGS.diff.capBonus));
-}
 function spawnBoar(){
   const alive=boars.filter(b=>!b.removed).length;
-  if(alive>=getBoarCap())return;
+  if(alive>=boarCap(P.level,CFG,SETTINGS.diff.capBonus))return;
   const pp=playerObj.position;
   const pos=findSafeSpawn(pp,CFG.spawnRadiusMin,CFG.spawnRadiusMax,24);
   const lm=1+(P.level-1)*0.16;
-  const b=new Boar(pos,lm,false,chooseBoarVariant());
+  const b=new Boar(pos,lm,false,chooseVariant(P.level,Math.random()));
   if(P.radar)addRadarDot(b);
   boars.push(b);
 }
@@ -1939,36 +1552,16 @@ function completeContract(){
 
 // ===== UPGRADES =====
 function grantXP(amount,canTriggerBoss=true){
-  P.xp+=Math.max(0,amount);
-  let gained=0;
-  while(P.xp>=P.xpToNext&&gained<12){
-    P.xp-=P.xpToNext;
-    P.level++;
-    P.xpToNext=Math.floor(P.level*110);
-    P.levelStreak++;
-    upgradeQueue++;
-    gained++;
-    if(canTriggerBoss&&P.levelStreak>=3&&!bossActive&&!bossSpawnPending){
-      P.levelStreak=0;
-      scheduleBossSpawn(2500);
-    }
-  }
-  if(gained>0)setTimeout(()=>processUpgradeQueue(),700);
+  const result=advanceXpState({
+    level:P.level,xp:P.xp,xpToNext:P.xpToNext,levelStreak:P.levelStreak
+  },amount,{canTriggerBoss,bossActive,bossSpawnPending});
+  P.level=result.level;P.xp=result.xp;P.xpToNext=result.xpToNext;P.levelStreak=result.levelStreak;
+  upgradeQueue+=result.upgradeQueueDelta;
+  if(result.shouldScheduleBoss)scheduleBossSpawn(2500);
+  if(result.gained>0)setTimeout(()=>processUpgradeQueue(),700);
 }
 function processUpgradeQueue(){
   if(upgradeQueue>0&&!gamePaused&&!gameOver){upgradeQueue--;showUpgradeMenu();}
-}
-function canOfferUpgrade(up){
-  if(up.id==='adr')return !P.adrenaline;
-  if(up.id==='explode')return !P.explosive;
-  if(up.id==='berserk')return !P.berserker;
-  if(up.id==='radar')return !P.radar;
-  if(up.id==='last')return !P.lastStand;
-  if(up.id==='death')return !P.deadlyShot;
-  if(up.id==='armor')return P.armor<0.7;
-  if(up.id==='crit')return P.critChance<0.65;
-  if(up.id==='multi')return P.multiShot<0.6;
-  return true;
 }
 function showUpgradeMenu(){
   if(gameOver)return;
@@ -1983,11 +1576,11 @@ function showUpgradeMenu(){
   snd('levelup');
 
   const pool=[];
-  UPGRADES.t1.filter(canOfferUpgrade).forEach(u=>pool.push({...u,tierClass:'t1',tierLabel:'Базовое'}));
-  if(P.level>=3)UPGRADES.t2.filter(canOfferUpgrade).forEach(u=>pool.push({...u,tierClass:'t2',tierLabel:'Продвинутое'}));
-  if(P.level>=5)UPGRADES.t3.filter(canOfferUpgrade).forEach(u=>pool.push({...u,tierClass:'t3',tierLabel:'Элитное'}));
+  UPGRADES.t1.filter(up=>canOfferUpgrade(up,P)).forEach(u=>pool.push({...u,tierClass:'t1',tierLabel:'Базовое'}));
+  if(P.level>=3)UPGRADES.t2.filter(up=>canOfferUpgrade(up,P)).forEach(u=>pool.push({...u,tierClass:'t2',tierLabel:'Продвинутое'}));
+  if(P.level>=5)UPGRADES.t3.filter(up=>canOfferUpgrade(up,P)).forEach(u=>pool.push({...u,tierClass:'t3',tierLabel:'Элитное'}));
   for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
-  const cardCount=P.level>=7?5:P.level>=4?4:3;
+  const cardCount=upgradeCardCount(P.level);
   const options=pool.slice(0,Math.min(cardCount,pool.length));
 
   container.innerHTML='';container.className='locked';
@@ -2052,38 +1645,43 @@ function showUpgradeMenu(){
 function updateHUD(){
   const w=P.weapons[P.curWeapon];
   if(w){
-    const dmgTxt=Math.round(w.dmg*P.dmgMult);
-    const stats=w.deployable?`Урон: ${dmgTxt} | Установлено: ${countDeployables(w.type)}/${w.type==='trap'?CFG.maxTraps:CFG.maxMines}`:`Урон: ${dmgTxt} | ${AMMO_NAMES[w.type]||''}`;
+    const weaponView=buildWeaponHud(w,P.dmgMult,countDeployables(w.type),CFG,AMMO_NAMES);
+    const stats=weaponView.stats;
     if(HUD_LAST.wname!==w.name){DOM.wname.textContent=w.name;HUD_LAST.wname=w.name;}
     if(HUD_LAST.wstats!==stats){DOM.wstats.textContent=stats;HUD_LAST.wstats=stats;}
     if(HUD_LAST.curAmmo!==w.curAmmo){DOM.curAmmo.textContent=w.curAmmo;HUD_LAST.curAmmo=w.curAmmo;}
     if(HUD_LAST.totalAmmo!==w.totalAmmo){DOM.totAmmo.textContent=w.totalAmmo;HUD_LAST.totalAmmo=w.totalAmmo;}
     updateReloadBar(w);
   }
-  const hpPct=Math.max(0,P.hp/P.maxHp*100);
+  const playerView=buildPlayerHud(P);
+  const hpPct=playerView.hpPct;
   if(HUD_LAST.hpPct!==hpPct){DOM.hpFill.style.width=hpPct+'%';HUD_LAST.hpPct=hpPct;}
   if(DOM.lowHpPulse)DOM.lowHpPulse.classList.toggle('on',hpPct>0&&hpPct<28);
-  const hpLabel=`ЗДОРОВЬЕ ${Math.ceil(Math.max(0,P.hp))} / ${P.maxHp}`;
+  const hpLabel=playerView.hpLabel;
   if(HUD_LAST.hpLabel!==hpLabel){DOM.hpText.textContent=hpLabel;HUD_LAST.hpLabel=hpLabel;}
   if(P.armor>0){
-    const armorLabel=`🛡 БРОНЯ −${Math.round(P.armor*100)}%`;
+    const armorLabel=playerView.armorLabel;
     if(HUD_LAST.armorLabel!==armorLabel){DOM.armorText.textContent=armorLabel;HUD_LAST.armorLabel=armorLabel;}
   }
   if(HUD_LAST.score!==P.score){DOM.scoreSpan.textContent=P.score;HUD_LAST.score=P.score;}
   if(HUD_LAST.kills!==P.kills){DOM.kcountSpan.textContent=P.kills;HUD_LAST.kills=P.kills;}
   if(HUD_LAST.level!==P.level){DOM.lvlSpan.textContent=P.level;HUD_LAST.level=P.level;}
-  const xpPct=Math.max(0,P.xp/P.xpToNext*100);
+  const xpPct=playerView.xpPct;
   if(HUD_LAST.xpPct!==xpPct){DOM.xpFill.style.width=xpPct+'%';HUD_LAST.xpPct=xpPct;}
-  const contractHtml=contract?`<strong>${contract.completed?'КОНТРАКТ ВЫПОЛНЕН':contract.title.toUpperCase()}</strong><span>${contract.desc}: ${contract.progress} / ${contract.target}<br>Награда: ${contract.rewardScore} очков + припасы</span>`:'<strong>КОНТРАКТ</strong><span>Будет выдан после начала охоты</span>';
+  const contractHtml=buildContractHud(contract);
   if(HUD_LAST.contractHtml!==contractHtml){DOM.contract.innerHTML=contractHtml;HUD_LAST.contractHtml=contractHtml;}
   if(P.combo>=2&&P.comboTimer>0){
     DOM.combo.textContent=`СЕРИЯ ×${P.combo}`;DOM.combo.classList.add('on');
   }else DOM.combo.classList.remove('on');
-  if(DOM.deployableStatus){const tc=countDeployables('trap'),mc=countDeployables('mine');DOM.deployableStatus.style.display=(tc||mc)?'block':'none';DOM.deployableStatus.textContent=`🪤 ${tc}/${CFG.maxTraps}   💣 ${mc}/${CFG.maxMines}`;}
+  if(DOM.deployableStatus){
+    const deployableView=buildDeployableHud(countDeployables('trap'),countDeployables('mine'),CFG);
+    DOM.deployableStatus.style.display=deployableView.visible?'block':'none';
+    DOM.deployableStatus.textContent=deployableView.text;
+  }
 
   // Boar count and slot classes are refreshed less often; this keeps HUD intact but cuts DOM churn.
   if((PERF.hudTick++%6)===0 || HUD_LAST.weaponIdx!==P.curWeapon || HUD_LAST.weaponLen!==P.weapons.length){
-    const aliveCount=boars.filter(b=>!b.dead&&!b.removed).length;
+    const aliveCount=countAliveBoars(boars);
     if(HUD_LAST.aliveCount!==aliveCount){DOM.bcountSpan.textContent=aliveCount;HUD_LAST.aliveCount=aliveCount;}
     if(!DOM.slots)DOM.slots=document.querySelectorAll('.slot');
     DOM.slots.forEach((s,i)=>{
@@ -2201,24 +1799,12 @@ function saveSettings(){
   writeJson(SETTINGS_STORAGE_KEY,{difficulty:SETTINGS.difficulty,quality:SETTINGS.quality,sensitivity:SETTINGS.sensitivity,volume:SETTINGS.volume});
 }
 function applyAdaptiveVisualBudget(){
-  if(!renderer)return;
-  const level=Math.max(0,Math.min(2,PERF.adaptiveLevel||0));
-  const ratios={low:.72,medium:1,high:Math.min(window.devicePixelRatio||1,1.35)};
-  const scales=[1,.86,.72];
-  renderer.setPixelRatio((ratios[SETTINGS.quality]||1)*scales[level]);
-  renderer.setSize(window.innerWidth,window.innerHeight,false);
-  const baseGrass=SETTINGS.quality==='low'?140:SETTINGS.quality==='high'?VISUAL_MAX.grass:280;
-  const grassScale=[1,.72,.45][level];
-  if(grassMesh)grassMesh.count=Math.max(70,Math.round(baseGrass*grassScale));
-  if(dustField){
-    const baseDust=SETTINGS.quality==='high'?VISUAL_MAX.dust:155;
-    dustField.visible=SETTINGS.quality!=='low'&&level<2;
-    dustField.geometry.setDrawRange(0,Math.max(55,Math.round(baseDust*(level===0?1:.62))));
-  }
-  if(distantHills)distantHills.visible=SETTINGS.quality!=='low'&&level<2;
-  const shadows=SETTINGS.quality==='high'&&level===0;
-  renderer.shadowMap.enabled=shadows;renderer.shadowMap.autoUpdate=shadows;
-  if(sunLight){sunLight.castShadow=shadows;sunLight.shadow.mapSize.set(shadows?1024:512,shadows?1024:512);}
+  if(!renderer||!environment)return;
+  environment.applyVisualBudget({
+    renderer,quality:SETTINGS.quality,adaptiveLevel:PERF.adaptiveLevel,
+    devicePixelRatio:window.devicePixelRatio||1,width:window.innerWidth,height:window.innerHeight,
+    sunLight
+  });
 }
 function updateAdaptivePerformance(dt){
   PERF.fpsTime+=dt;PERF.fpsFrames++;
@@ -2295,7 +1881,7 @@ function spawnInitialBoars(){
   const count=Math.min(CFG.startBoars,getBoarCap());
   for(let i=0;i<count;i++){
     const pos=findSafeSpawn(playerObj.position,32,54,24);
-    boars.push(new Boar(pos,1,false,chooseBoarVariant()));
+    boars.push(new Boar(pos,1,false,chooseVariant(P.level,Math.random())));
   }
 }
 
@@ -2333,7 +1919,15 @@ function init(){
   sunLight.shadow.mapSize.set(1024,1024);sunLight.shadow.bias=-0.0007;sunLight.shadow.normalBias=.025;
   scene.add(sunLight);scene.add(sunLight.target);
   const fill=new THREE.DirectionalLight(0x6688aa,.22);fill.position.set(-80,55,-60);scene.add(fill);
-  createSkyEnvironment();
+  environment=createEnvironmentSystem({
+    THREE,scene,CFG,VISUAL_MAX,structureBoxes,
+    registerTree:_regTree,
+    registerPropMesh:mesh=>_propMeshes.push(mesh),
+    registerShootableProp:prop=>shootableProps.push(prop),
+    getPlayer:()=>playerObj,
+    getSunLight:()=>sunLight
+  });
+  environment.createSkyEnvironment();
 
   playerObj=new THREE.Object3D();
   playerObj.position.set(0,CFG.playerHeight,0);
@@ -2341,7 +1935,7 @@ function init(){
 
   precacheAssets();
   FX._init();
-  createWorld();
+  environment.createWorld();
   setQuality(SETTINGS.quality,false);
   initWeapons();
 
@@ -2481,7 +2075,7 @@ function animate(){
     updatePlayer(dt);
     updateAdaptivePerformance(dt);
     updateViewMotion(dt);
-    updateEnvironmentVisuals(dt);
+    environment.updateEnvironmentVisuals(dt);
     const pp=playerObj.position;
     for(let i=boars.length-1;i>=0;i--){if(!boars[i].removed)boars[i].update(dt,pp);}
     for(let i=pickups.length-1;i>=0;i--){
@@ -2492,14 +2086,7 @@ function animate(){
     FX.update(dt);
     updateDeployables(dt);
     updateReloads(dt);
-    // Animate campfires every 2nd frame
-    if(_frameN%2===0){
-      const t=performance.now()*0.003;
-      campfires.forEach(cf=>{
-        if(cf.userData.fireLight){cf.userData.fireLight.intensity=1.8+Math.sin(t*8)*0.6+Math.sin(t*13.3)*0.3;}
-        if(cf.userData.flame){cf.userData.flame.scale.y=1+Math.sin(t*10)*0.18;cf.userData.flame.rotation.y+=0.12;}
-      });
-    }
+    if(_frameN%2===0)environment.updateCampfires(performance.now()*0.003);
     // Shoot handling
     const w=P.weapons[P.curWeapon];
     if(shooting&&w){
