@@ -261,3 +261,9 @@ CI **не доказывает** полный gameplay runtime: pointer lock, We
 ---
 
 **Forest Hunter — Ultimate Hunt** — экспериментальный браузерный FPS с охотой, прогрессией, AI-противниками и большим набором оружия.
+
+## Контакты для связи с разработчиком
+
+- [zeter11@gmail.com](mailto:zeter11@gmail.com)
+- [https://t.me/zeter1](https://t.me/zeter1)
+- [https://www.linkedin.com/in/zeter/](https://www.linkedin.com/in/zeter/)
