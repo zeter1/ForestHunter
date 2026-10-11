@@ -1,6 +1,6 @@
-# 🐗 Forest Hunter — Ultimate Hunt
-
 **Язык / Language:** **Русский** · [English](README_EN.md)
+
+# 🐗 Forest Hunter — Ultimate Hunt
 
 [![Validate](https://github.com/zeter1/ForestHunter/actions/workflows/validate.yml/badge.svg)](https://github.com/zeter1/ForestHunter/actions/workflows/validate.yml)
 
@@ -277,8 +277,6 @@ CI **не доказывает** полный gameplay runtime: pointer lock, We
 **Forest Hunter — Ultimate Hunt** — экспериментальный браузерный FPS с охотой, прогрессией, AI-противниками и большим набором оружия.
 
 ## Контакты для связи с разработчиком
-
-**Язык / Language:** **Русский** · [English](README_EN.md#developer-contacts)
 
 - [zeter11@gmail.com](mailto:zeter11@gmail.com)
 - [https://t.me/zeter1](https://t.me/zeter1)
