@@ -1,5 +1,7 @@
 # 🐗 Forest Hunter — Ultimate Hunt
 
+**Язык / Language:** **Русский** · [English](README_EN.md)
+
 [![Validate](https://github.com/zeter1/ForestHunter/actions/workflows/validate.yml/badge.svg)](https://github.com/zeter1/ForestHunter/actions/workflows/validate.yml)
 
 **Forest Hunter — Ultimate Hunt** — браузерный 3D FPS на **Three.js/WebGL**, в котором игрок охотится на кабанов, собирает оружие и припасы, выполняет контракты, прокачивает персонажа и сражается с боссом **Альфа-вепрём**.
@@ -276,6 +278,16 @@ CI **не доказывает** полный gameplay runtime: pointer lock, We
 
 ## Контакты для связи с разработчиком
 
+**Язык / Language:** **Русский** · [English](README_EN.md#developer-contacts)
+
 - [zeter11@gmail.com](mailto:zeter11@gmail.com)
 - [https://t.me/zeter1](https://t.me/zeter1)
 - [https://www.linkedin.com/in/zeter/](https://www.linkedin.com/in/zeter/)
+- [https://www.facebook.com/zeter1](https://www.facebook.com/zeter1)
+- [https://vk.ru/zeter1](https://vk.ru/zeter1)
+- [https://www.instagram.com/zeter1992/](https://www.instagram.com/zeter1992/)
+- [https://tenchat.ru/zeter](https://tenchat.ru/zeter)
+- [https://x.com/zeter1](https://x.com/zeter1)
+- [https://www.threads.com/@zeter1992](https://www.threads.com/@zeter1992)
+- [https://ok.ru/zeter1](https://ok.ru/zeter1)
+- [https://t.me/zeterchat](https://t.me/zeterchat) — Telegram-группа: обо мне, проекты и чат
